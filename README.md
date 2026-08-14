@@ -1,36 +1,23 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SkillBench
 
-## Getting Started
+A prototype evaluation tool for AI Agent Skills. Looks like a Vercel developer product; all data is mocked.
 
-First, run the development server:
+This demo answers a single question: **does this `SKILL.md` actually make a coding agent better — and can the agent find it when it needs it?**
+
+## Run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Demo path
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **Evaluations** (`/`) — recent skill evals. Open `analyze-bundle`.
+2. **New Evaluation** (`/new`) — configure a run. **Run Evaluation** simulates progress, then opens results.
+3. **Results** (`/evaluations/analyze-bundle`) — the skill helps (+24 pp) but only triggers 79% of the time. Read the analysis, open a failed run, then **Generate improved skill**.
+4. **Compare** (`/compare`) — No Skill vs SKILL.md vs Explicit vs AGENTS.md. Skills are not always the best delivery mechanism.
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+No API keys, database, or agent runtime required.
