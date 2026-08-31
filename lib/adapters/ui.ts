@@ -1,13 +1,21 @@
-import { CLASSIFICATION_LABELS, type EvalRun, type EvaluationRecord } from "../eval/types";
+import {
+  BENCHMARK_SOURCE_LABELS,
+  CLASSIFICATION_LABELS,
+  benchmarkSourceOf,
+  type EvalRun,
+  type EvaluationRecord,
+} from "../eval/types";
 import {
   buildAnalysisIntro,
   buildComparisonNote,
   buildCompletionSummary,
+  buildSampleWarnings,
   buildTriggerDetail,
   buildTriggerNote,
   buildVerdict,
   describeFailureReason,
   formatDuration,
+  type SampleContext,
 } from "../eval/narrative";
 import type {
   ConfigurationMetrics,
@@ -46,9 +54,25 @@ function scoredRunCount(record: EvaluationRecord) {
   return record.runs.filter((run) => run.status === "completed").length;
 }
 
+export function sampleContextOf(record: EvaluationRecord): SampleContext {
+  const fromTasks = record.tasks.length;
+  const fromRuns = new Set(record.runs.map((run) => run.taskId)).size;
+  const taskCount = Math.max(fromTasks, fromRuns);
+  const nonRelevantTaskCount = fromTasks
+    ? record.tasks.filter((task) => !task.skillRelevant).length
+    : new Set(
+        record.runs.filter((run) => !run.skillRelevant).map((run) => run.taskId),
+      ).size;
+  const relevantScoredRuns = record.runs.filter(
+    (run) => run.status === "completed" && run.skillRelevant,
+  ).length;
+  return { taskCount, relevantScoredRuns, nonRelevantTaskCount };
+}
+
 export function toSummary(record: EvaluationRecord): EvaluationSummary {
   const timestamp =
     record.completedAt ?? record.progress.updatedAt ?? record.createdAt;
+  const source = benchmarkSourceOf(record.request);
 
   return {
     id: record.id,
@@ -64,6 +88,8 @@ export function toSummary(record: EvaluationRecord): EvaluationSummary {
     updatedAt: timestamp,
     question: record.question,
     isRevision: record.revisionOf !== null,
+    benchmarkSource: source,
+    benchmarkSourceLabel: BENCHMARK_SOURCE_LABELS[source],
   };
 }
 
@@ -91,6 +117,7 @@ function toTriggerStats(record: EvaluationRecord): TriggerStats | null {
     falsePositives: trigger.falsePositives,
     irrelevant: trigger.irrelevant,
     rate: trigger.triggerRate,
+    falsePositiveRate: trigger.falsePositiveRate,
   };
 }
 
@@ -161,7 +188,8 @@ function labelFor(configId: string) {
 
 export function toDetail(record: EvaluationRecord): EvaluationDetail {
   const metrics = record.metrics;
-  const { verdict, badge } = buildVerdict(metrics);
+  const sample = sampleContextOf(record);
+  const { verdict, badge } = buildVerdict(metrics, sample);
 
   const failedRuns = record.runs
     .filter((run) => !run.success || run.status === "error")
@@ -204,6 +232,7 @@ export function toDetail(record: EvaluationRecord): EvaluationDetail {
     erroredRuns: metrics?.erroredRuns ?? record.runs.length - scoredRunCount(record),
     taskCount: record.tasks.length,
     runsPerConfig: record.request.runsPerConfig,
+    sampleWarnings: buildSampleWarnings(sample),
   };
 }
 

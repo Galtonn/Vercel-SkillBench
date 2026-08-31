@@ -15,9 +15,11 @@ type Key = "name" | "success" | "avgScore" | "triggerRate" | "avgTokens" | "avgR
 export function ComparisonTable({
   configs,
   note,
+  evaluationId,
 }: {
   configs: ConfigurationMetrics[];
   note: string;
+  evaluationId?: string;
 }) {
   const [sortKey, setSortKey] = useState<Key>("success");
   const [asc, setAsc] = useState(false);
@@ -131,7 +133,10 @@ export function ComparisonTable({
       </div>
       <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
         {note}{" "}
-        <Link href="/compare" className="text-foreground underline underline-offset-4">
+        <Link
+          href={evaluationId ? `/compare?id=${evaluationId}` : "/compare"}
+          className="text-foreground underline underline-offset-4"
+        >
           Compare context strategies
         </Link>
       </p>

@@ -22,7 +22,11 @@ import {
   type ResolvedSkill,
 } from "./types";
 import { ReadOnlyWorkspace } from "./workspace";
-import { loadEvaluation, saveEvaluation } from "../storage/evaluations";
+import {
+  deleteEvaluation,
+  loadEvaluation,
+  saveEvaluation,
+} from "../storage/evaluations";
 
 /**
  * Orchestrates an evaluation: real model calls for every task under every
@@ -37,11 +41,24 @@ import { loadEvaluation, saveEvaluation } from "../storage/evaluations";
 const inFlight = new Set<string>();
 /** Ids the user asked to cancel. */
 const cancelRequested = new Set<string>();
+/** Ids whose files were deleted; persist must not recreate them. */
+const abandoned = new Set<string>();
 
 export function requestCancellation(id: string) {
   if (!inFlight.has(id)) return false;
   cancelRequested.add(id);
   return true;
+}
+
+/**
+ * Stops an in-flight evaluation from writing back to disk after its file has
+ * been deleted. Without this, a progress save would recreate the evaluation.
+ * The id stays in `abandoned` for the life of the process so a persist that
+ * was already in flight cannot resurrect the file after execute returns.
+ */
+export function abandonEvaluation(id: string) {
+  abandoned.add(id);
+  if (inFlight.has(id)) cancelRequested.add(id);
 }
 
 export function isRunning(id: string) {
@@ -218,7 +235,7 @@ async function executeRun(input: {
     const result = scoreContains(
       agent.response,
       unit.task.expected.values,
-      unit.task.expected.mode,
+      unit.task.expected.mode ?? "all",
     );
     success = result.success;
     score = result.score;
@@ -233,6 +250,7 @@ async function executeRun(input: {
       provider: input.provider,
       taskPrompt: unit.task.prompt,
       criteria: unit.task.expected.criteria,
+      referenceAnswer: unit.task.expected.referenceAnswer,
       response: agent.response,
     });
     success = result.success;
@@ -305,12 +323,17 @@ export async function executeEvaluation(
   const startedAtMs = Date.now();
 
   const persist = async (progress: Partial<EvaluationProgress> = {}) => {
+    if (abandoned.has(id)) return;
     record.progress = {
       ...record.progress,
       ...progress,
       updatedAt: new Date().toISOString(),
     };
+    if (abandoned.has(id)) return;
     await saveEvaluation(record);
+    if (abandoned.has(id)) {
+      await deleteEvaluation(id).catch(() => {});
+    }
   };
 
   const setPhase = async (

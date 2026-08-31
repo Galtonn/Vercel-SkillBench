@@ -92,8 +92,8 @@ export default function DocsPage() {
         <p className="text-sm leading-relaxed text-muted-foreground">
           Tasks with a checkable answer use a deterministic substring check.
           Analysis tasks use a separate judge call that receives the task, the
-          criteria, and the answer — and is never told which condition produced it,
-          so it cannot favour one. A judge response that does not parse is retried
+          task-specific criteria, an optional reference answer, and the answer —
+          and is never told which condition produced it, so it cannot favour one. A judge response that does not parse is retried
           once, then the run is marked unscored and excluded from rates rather than
           counted as a failure.
         </p>
@@ -127,9 +127,10 @@ export default function DocsPage() {
       <section className="mt-12 space-y-4">
         <h2 className="text-lg font-medium">Get started</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Set <span className="font-mono">OPENAI_API_KEY</span>, then run the
-          built-in <span className="font-mono">analyze-bundle</span> benchmark from
-          the New Evaluation page.
+          Set <span className="font-mono">OPENAI_API_KEY</span>, then run a
+          built-in benchmark from the New Evaluation page, or load any{" "}
+          <span className="font-mono">SKILL.md</span>, point it at a fixture, and
+          author or generate tasks with explicit relevance and scoring criteria.
         </p>
         <Link href="/new" className={cn(buttonVariants(), "mt-2 inline-flex")}>
           New Evaluation

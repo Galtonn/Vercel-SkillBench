@@ -12,9 +12,10 @@ import type {
   FindingSeverity,
   RunClassification,
   SkillProblemKind,
+  BenchmarkSource,
 } from "./eval/types";
 
-export type { ConfigId, FindingSeverity, RunClassification };
+export type { ConfigId, FindingSeverity, RunClassification, BenchmarkSource };
 
 export type EvalStatus = "completed" | "running" | "failed" | "cancelled";
 
@@ -44,6 +45,7 @@ export type TriggerStats = {
   /** Non-relevant runs, the denominator for the false-positive rate. */
   irrelevant: number;
   rate: number | null;
+  falsePositiveRate: number | null;
 };
 
 export type Finding = EvalFinding;
@@ -97,6 +99,8 @@ export type EvaluationSummary = {
   updatedAt: string;
   question: string;
   isRevision: boolean;
+  benchmarkSource: BenchmarkSource;
+  benchmarkSourceLabel: string;
 };
 
 export type SkillMeta = {
@@ -137,6 +141,7 @@ export type EvaluationDetail = EvaluationSummary & {
   erroredRuns: number;
   taskCount: number;
   runsPerConfig: number;
+  sampleWarnings: string[];
 };
 
 /** Live progress for an evaluation that has not finished. */

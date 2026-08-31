@@ -64,8 +64,22 @@ export type ResolvedSkill = ParsedSkill & {
 /* -------------------------------------------------------------------------- */
 
 export type ExpectedOutcome =
-  | { type: "contains"; values: string[]; mode: "all" | "any" }
-  | { type: "llm_judge"; criteria: string[] };
+  | {
+      type: "contains";
+      values: string[];
+      /** Defaults to "all" when a task omits it. */
+      mode?: "all" | "any";
+    }
+  | {
+      type: "llm_judge";
+      criteria: string[];
+      /**
+       * What a correct answer looks like, in prose. Given to the judge as
+       * orientation, never as a string to match: a response is scored on whether
+       * it contains the same facts, not the same words.
+       */
+      referenceAnswer?: string;
+    };
 
 export type EvalTask = {
   id: string;
@@ -78,6 +92,19 @@ export type EvalTask = {
    */
   skillRelevant: boolean;
   expected: ExpectedOutcome;
+};
+
+/**
+ * Where an evaluation's tasks came from. Recorded because a benchmark written by
+ * a model is weaker evidence than one written by the skill's author, and a
+ * reader of the results has no other way to tell the difference.
+ */
+export type BenchmarkSource = "built-in" | "ai-generated" | "user-authored";
+
+export const BENCHMARK_SOURCE_LABELS: Record<BenchmarkSource, string> = {
+  "built-in": "Built-in benchmark",
+  "ai-generated": "AI-generated benchmark",
+  "user-authored": "User-authored benchmark",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -279,9 +306,24 @@ export type EvaluationRequest = {
   runsPerConfig: number;
   /** Set when the run used a built-in benchmark instead of pasted tasks. */
   benchmarkId: string | null;
+  /**
+   * Provenance of the task set. Optional because evaluations saved before this
+   * field existed do not carry it; read it through `benchmarkSourceOf`.
+   */
+  benchmarkSource?: BenchmarkSource;
   /** Read-only fixture workspace exposed to the agent, if any. */
   workspaceId: string | null;
 };
+
+/**
+ * Provenance of a stored evaluation's tasks, inferring it for records written
+ * before the field existed. Those predate both the generator and the structured
+ * editor, so a benchmark id means built-in and anything else was pasted in.
+ */
+export function benchmarkSourceOf(request: EvaluationRequest): BenchmarkSource {
+  if (request.benchmarkSource) return request.benchmarkSource;
+  return request.benchmarkId ? "built-in" : "user-authored";
+}
 
 export type EvaluationRecord = {
   id: string;

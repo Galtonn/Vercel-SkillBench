@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { WORKSPACE_TOOLS, ReadOnlyWorkspace } from "@/lib/eval/workspace";
 
 const workspace = new ReadOnlyWorkspace("bundle-bench");
+const uiBench = new ReadOnlyWorkspace("ui-bench");
 
 describe("ReadOnlyWorkspace — reading", () => {
   it("lists the fixture tree from the root", async () => {
@@ -126,5 +127,26 @@ describe("ReadOnlyWorkspace — tool dispatch", () => {
     const result = await workspace.call("list_files", {});
 
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("ui-bench fixture", () => {
+  it("exposes the planted accessibility files", async () => {
+    const listing = await uiBench.listFiles(".");
+
+    expect(listing.ok).toBe(true);
+    expect(listing.content).toContain("app/settings/account-form.tsx");
+    expect(listing.content).toContain("components/hero.tsx");
+    expect(listing.content).toContain("lib/format-name.ts");
+  });
+
+  it("contains the unlabeled email input the benchmark scores against", async () => {
+    const result = await uiBench.readFile("app/settings/account-form.tsx");
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toMatch(/type="email"/);
+    expect(result.content).toMatch(/placeholder="you@example.com"/);
+    expect(result.content).not.toMatch(/htmlFor=/);
+    expect(result.content).not.toMatch(/aria-label=/);
   });
 });

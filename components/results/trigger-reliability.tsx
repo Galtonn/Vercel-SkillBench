@@ -53,6 +53,12 @@ export function TriggerReliability({
               {evaluation.triggerDetail}
             </p>
           ) : null}
+          {trigger.irrelevant === 1 ? (
+            <p className="mt-2 text-muted-foreground">
+              False-positive rate is based on only one non-relevant task and is
+              highly unstable.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </section>

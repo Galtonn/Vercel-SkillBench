@@ -34,6 +34,13 @@ export function OverallVerdict({ evaluation }: { evaluation: EvaluationDetail })
       <p className="mt-4 max-w-2xl text-[15px] text-muted-foreground">
         {evaluation.verdict}
       </p>
+      {evaluation.sampleWarnings.length > 0 ? (
+        <ul className="mt-3 max-w-2xl space-y-1 text-sm text-muted-foreground">
+          {evaluation.sampleWarnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
       <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
         {evaluation.taskCount} task{evaluation.taskCount === 1 ? "" : "s"} ·{" "}
         {evaluation.runsPerConfig} run

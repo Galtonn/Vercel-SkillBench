@@ -34,9 +34,9 @@ describe("parseJudgeVerdict", () => {
     expect(verdict?.success).toBe(true);
   });
 
-  it("clamps scores to the 0-1 range", () => {
-    expect(parseJudgeVerdict('{"success":true,"score":4,"reason":"x"}')?.score).toBe(1);
-    expect(parseJudgeVerdict('{"success":false,"score":-2,"reason":"x"}')?.score).toBe(0);
+  it("rejects a score outside 0-1 rather than clamping it into a fake verdict", () => {
+    expect(parseJudgeVerdict('{"success":true,"score":4,"reason":"x"}')).toBeNull();
+    expect(parseJudgeVerdict('{"success":false,"score":-2,"reason":"x"}')).toBeNull();
   });
 
   it("substitutes a placeholder for a missing reason", () => {
@@ -98,7 +98,7 @@ describe("judgeResponse", () => {
     const retryPrompt = provider.requests[1].messages[0];
     expect(retryPrompt).toHaveProperty(
       "content",
-      expect.stringContaining("was not valid JSON"),
+      expect.stringContaining("did not match the required schema"),
     );
   });
 
@@ -125,6 +125,24 @@ describe("judgeResponse", () => {
 
     expect(outcome.success).toBe(false);
     expect(outcome.judgeError).toContain("429");
+  });
+
+  it("gives the judge a reference answer as orientation, not a string to match", async () => {
+    const provider = scriptedProvider([
+      { text: '{"success":true,"score":1,"reason":"Same facts."}' },
+    ]);
+
+    await judgeResponse({
+      provider,
+      ...input,
+      referenceAnswer:
+        "The email input lacks a label, the icon-only submit has no accessible name.",
+    });
+
+    const text = JSON.stringify(provider.requests[0].messages);
+    expect(text).toContain("not a template to match");
+    expect(text).toContain("The email input lacks a label");
+    expect(text).toContain("chart-vendor is the largest.");
   });
 
   it("never tells the judge which configuration produced the answer", async () => {

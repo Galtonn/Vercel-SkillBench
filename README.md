@@ -86,9 +86,26 @@ The New Evaluation page (`/new`) has a **Live demo: analyze-bundle** preset. It 
 - **Conditions** — all four
 - **Runs** — 1 per condition
 
-A picker above the task list switches between three sizes: **Live demo · 3**, **Standard · 5**, and **Full benchmark · 10**. Each preset is a subset of the ten-task set rather than a rewrite, and the smaller ones nest inside the larger ones, so a task scores the same however you ran it. Every preset keeps at least one skill-relevant task, one task whose prompt never mentions bundles, and one non-relevant task, so all three sizes measure discovery, invocation, effectiveness, and false positives.
+A picker above the task list switches between two built-in skills:
 
-Editing the task list switches the form out of preset mode and treats your text as ad-hoc tasks.
+- **analyze-bundle** — three sizes: **Live demo · 3**, **Standard · 5**, and **Full benchmark · 10**
+- **web-design-guidelines** — seven tasks over `fixtures/ui-bench`, with planted accessibility and layout defects
+
+Each analyze-bundle preset is a subset of the ten-task set rather than a rewrite. Every built-in set keeps at least one skill-relevant task and at least one non-relevant task, so trigger rate and false-positive rate are both measurable.
+
+## Custom skills
+
+Uncheck **Use built-in benchmark** to evaluate an arbitrary `SKILL.md`.
+
+1. Load the skill (GitHub reference, URL, local path, or pasted markdown).
+2. Point the evaluation at a fixture (`fixtures/bundle-bench` or `fixtures/ui-bench`) so the agent can read files.
+3. Either **Generate benchmark from skill** or author tasks in the structured editor.
+4. For every task, set whether the skill should help, the scoring method, and task-specific criteria or keywords. Optionally add a reference answer for the judge.
+5. Review the **Benchmark quality** panel. Warnings (all tasks marked relevant, missing criteria, a single non-relevant task, no fixture) do not block a run, but they mean the numbers will not mean what they look like.
+
+Generated tasks are drafts. They are never started until you review them. Each evaluation is labelled **Built-in**, **AI-generated**, or **User-authored** so a later reader knows how much to trust the ground truth.
+
+Trigger rate is always `skill loaded on relevant skill-condition runs / relevant skill-condition runs`. Non-relevant tasks are the false-positive denominator. Relevance is the author-supplied `skillRelevant` flag, never inferred from prompt wording.
 
 The non-relevant tasks are what make false-positive loading measurable. Without them you can only see missed triggers, not over-eager ones. Live demo and Standard have one each, so their false-positive rate can only read 0% or 100%; use the full benchmark when that number needs to be meaningful.
 
@@ -117,11 +134,11 @@ The **Before you run** panel on `/new` computes these from whatever you have sel
 Two modes, chosen per task:
 
 - **`contains`** — deterministic substring matching, case-insensitive and whitespace-normalised. No fuzzy matching.
-- **`llm_judge`** — a separate model call given the task, the criteria, and the candidate answer. The judge is not told which condition produced the answer, so it cannot favour one. Malformed verdicts are retried once with stricter instructions; a verdict that still fails to parse marks the run unscored rather than failed, because an unscorable run is not evidence either way.
+- **`llm_judge`** — a separate model call given the task, the task-specific criteria, an optional reference answer, and the candidate answer. The judge is not told which condition produced the answer, so it cannot favour one. A reference answer is orientation, not a verbatim match. Malformed verdicts are retried once with stricter instructions; a verdict that still fails to parse marks the run unscored rather than failed, because an unscorable run is not evidence either way.
 
 ## What the results show
 
-Every sentence in the results UI is generated from the measured metrics. A difference under 5 percentage points is described as immaterial rather than as a win, and no copy claims an improvement the numbers do not show. Where a quantity could not be measured — no baseline, no scored runs — the UI shows a dash instead of a zero.
+Every sentence in the results UI is generated from the measured metrics. A difference under 5 percentage points is described as immaterial rather than as a win, and no copy claims an improvement the numbers do not show. Where a quantity could not be measured — no baseline, no scored runs — the UI shows a dash instead of a zero. Fewer than 10 scored runs on skill-relevant tasks produces a sample-size warning; a single non-relevant task is called out as an unstable false-positive rate. A tiny negative result is labelled **Underperformed in this small benchmark**, not **Harmful**.
 
 The **Improve Skill** flow uses the actual failures to propose a revised `SKILL.md`. It diagnoses whether the data shows a discovery problem (rewrite the name, description, and trigger wording) or an instruction problem (rewrite the body), and the revision is validated as a parseable `SKILL.md` before being stored. It is never described as better until a re-evaluation measures it.
 
@@ -146,5 +163,5 @@ Covers `SKILL.md` parsing, the deterministic scorer, the `use_skill` tool loop, 
 - One provider (OpenAI) and one skill per evaluation.
 - Tasks are analysis and diagnosis, not autonomous code editing. The agent reads the repository and describes changes; it does not apply them, so there is no build or test validation.
 - The `AGENTS.md` condition is a controlled delivery comparison, not a faithful reproduction of a specific agent harness.
-- Task counts are small by design (5 tasks by default, 10 in the full benchmark, 1 run each), so a single task moves the percentages substantially. Raise runs per condition, or switch to the full benchmark, for a tighter estimate at proportional cost.
-- Ad-hoc tasks typed into the form are all treated as skill-relevant and judged against generic criteria. Labelled non-relevant tasks, and therefore real false-positive measurement, require a benchmark.
+- Task counts are small by design (3 tasks by default, 10 in the full analyze-bundle benchmark, 1 run each), so a single task moves the percentages substantially. Raise runs per condition, or switch to a larger preset, for a tighter estimate at proportional cost.
+- An AI-generated benchmark is a draft. The model that writes the tasks also writes the ground truth, so review relevance and criteria before treating the numbers as evidence.

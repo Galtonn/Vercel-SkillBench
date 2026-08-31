@@ -15,7 +15,7 @@ import type {
  * yields no findings rather than fabricated ones.
  */
 
-const SYSTEM_PROMPT = `You analyse the results of an agent-skill evaluation.
+export const FINDINGS_SYSTEM_PROMPT = `You analyse the results of an agent-skill evaluation.
 
 You will receive measured data from a completed evaluation: aggregate metrics,
 skill-invocation statistics, run classifications, the reasons the agent gave when
@@ -26,9 +26,16 @@ Write 2 to 4 findings that a skill author could act on. Rules:
 - Use only the numbers you are given. Never invent a statistic. If you want to
   cite a number, it must appear in the data above.
 - Distinguish a discovery problem (the skill helps but the agent does not load it)
-  from an instruction problem (the agent loads it and still fails).
-- Be specific about what in the skill's name, description, or instructions is
-  responsible.
+  from an instruction problem (the agent loads it and still fails). A missed
+  trigger is not evidence that the instruction body is wrong. A failure after
+  loading is not evidence that the description is too broad.
+- Do not blame instruction length, character count, or "the skill is too long"
+  unless a failing run's judge reason actually shows the loaded instructions were
+  contradictory, incomplete, or wrong. Length alone is never a finding.
+- Do not claim the description is too broad or too narrow unless missed triggers
+  or false-positive loads in the data support that claim.
+- If the sample is small (the data block will say so), say so. Prefer "in this
+  benchmark" over "this skill is generally X". Do not overclaim.
 - Do not recommend changes the data does not support.
 - If the data shows the skill is working well, say so instead of manufacturing
   criticism.
@@ -82,6 +89,25 @@ function summarizeRuns(runs: EvalRun[]) {
   };
 }
 
+function sampleSizeBlock(runs: EvalRun[]) {
+  const scored = runs.filter((run) => run.status === "completed");
+  const taskIds = new Set(runs.map((run) => run.taskId));
+  const relevantTaskIds = new Set(
+    runs.filter((run) => run.skillRelevant).map((run) => run.taskId),
+  );
+  const relevantScored = scored.filter((run) => run.skillRelevant).length;
+  const small = relevantScored < 10 || taskIds.size < 5;
+
+  return `## Sample size
+
+- Tasks: ${taskIds.size}
+- Skill-relevant tasks: ${relevantTaskIds.size}
+- Non-relevant tasks: ${taskIds.size - relevantTaskIds.size}
+- Scored runs: ${scored.length}
+- Scored runs on skill-relevant tasks: ${relevantScored}
+- Sample is small: ${small ? "yes — treat findings as directional, not conclusive" : "no"}`;
+}
+
 function buildDataBlock(input: {
   skill: ResolvedSkill;
   metrics: EvaluationMetrics;
@@ -118,7 +144,9 @@ function buildDataBlock(input: {
 name: ${skill.name}
 description: ${skill.description}
 
-Instructions length: ${skill.instructions.length} characters.
+The skill body is ${skill.instructions.length} characters. That number is metadata, not a finding. Do not mention length unless a specific failing run's judge reason shows the loaded instructions were contradictory, incomplete, or wrong.
+
+${sampleSizeBlock(input.runs)}
 
 ## Configuration results
 
@@ -216,6 +244,14 @@ export function parseFindings(text: string): EvalFinding[] | null {
   return null;
 }
 
+export function buildDataBlockForTest(input: {
+  skill: ResolvedSkill;
+  metrics: EvaluationMetrics;
+  runs: EvalRun[];
+}) {
+  return buildDataBlock(input);
+}
+
 export async function generateFindings(input: {
   provider: ModelProvider;
   skill: ResolvedSkill;
@@ -227,7 +263,7 @@ export async function generateFindings(input: {
   try {
     const result = await input.provider.generate({
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: FINDINGS_SYSTEM_PROMPT },
         { role: "user", content: data },
       ],
       temperature: 0.2,

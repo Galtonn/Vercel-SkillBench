@@ -1,12 +1,19 @@
 import Link from "next/link";
 
+import { CompareEvalPicker, type CompareOption } from "@/components/compare-eval-picker";
 import { MetricTip } from "@/components/metric-tip";
 import { formatCount, formatPct, formatRuntime, formatTokens } from "@/lib/format";
 import { CONFIG_EXPLAINERS } from "@/lib/ui-copy";
 import { cn } from "@/lib/utils";
 import type { ConfigurationMetrics, EvaluationDetail } from "@/lib/types";
 
-export function CompareView({ evaluation }: { evaluation: EvaluationDetail }) {
+export function CompareView({
+  evaluation,
+  options,
+}: {
+  evaluation: EvaluationDetail;
+  options: CompareOption[];
+}) {
   const byId = new Map<string, ConfigurationMetrics>(
     evaluation.configs.map((config) => [config.id, config]),
   );
@@ -36,6 +43,7 @@ export function CompareView({ evaluation }: { evaluation: EvaluationDetail }) {
           The same knowledge, delivered four ways, measured on the same{" "}
           {evaluation.taskCount} tasks with the same model.
         </p>
+        <CompareEvalPicker currentId={evaluation.id} options={options} />
       </div>
 
       <section className="animate-fade-up delay-2 mt-12 rounded-lg border border-border p-6 sm:p-8">
@@ -47,13 +55,6 @@ export function CompareView({ evaluation }: { evaluation: EvaluationDetail }) {
         </h2>
         <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
           {evaluation.comparisonNote}
-        </p>
-        <p className="mt-4 max-w-2xl text-[15px] leading-relaxed text-muted-foreground">
-          SkillBench is not trying to prove skills are always better. It answers:{" "}
-          <span className="text-foreground">
-            what is the best way to give an agent this knowledge, and does the
-            agent know when to reach for it?
-          </span>
         </p>
       </section>
 

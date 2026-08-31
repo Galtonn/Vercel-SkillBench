@@ -106,6 +106,21 @@ describe("toSummary", () => {
     expect(toSummary(makeRecord({ revisionOf: "original-id" })).isRevision).toBe(true);
     expect(toSummary(makeRecord()).isRevision).toBe(false);
   });
+
+  it("labels a stored evaluation by where its tasks came from", () => {
+    expect(toSummary(makeRecord()).benchmarkSourceLabel).toBe("Built-in benchmark");
+    expect(
+      toSummary(
+        makeRecord({
+          request: {
+            ...makeRecord().request,
+            benchmarkId: null,
+            benchmarkSource: "ai-generated",
+          },
+        }),
+      ).benchmarkSourceLabel,
+    ).toBe("AI-generated benchmark");
+  });
 });
 
 describe("toDetail", () => {
@@ -155,7 +170,7 @@ describe("toDetail", () => {
       }),
     );
 
-    expect(detail.verdictBadge).toBe("Useful, unreliable trigger");
+    expect(detail.verdictBadge).toBe("Useful in this small benchmark");
     expect(detail.comparisonNote).toMatch(/Skill improved success by 50 percentage points/);
     expect(detail.triggerNote).toBe("2 runs failed because the skill was never loaded.");
     expect(detail.missedTriggerFailureCount).toBe(2);
@@ -179,6 +194,7 @@ describe("toDetail", () => {
       falsePositives: 1,
       irrelevant: 1,
       rate: 50,
+      falsePositiveRate: 100,
     });
   });
 

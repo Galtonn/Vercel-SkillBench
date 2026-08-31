@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateFindings, parseFindings } from "@/lib/eval/findings";
+import { generateFindings, parseFindings, FINDINGS_SYSTEM_PROMPT } from "@/lib/eval/findings";
 import { computeMetrics } from "@/lib/eval/metrics";
 
 import { makeRuns, makeSkill, scriptedProvider } from "./helpers/factories";
@@ -119,6 +119,34 @@ describe("generateFindings", () => {
 
     expect(result.findings).toEqual([]);
     expect(result.error).toBe("connection reset");
+  });
+
+  it("forbids blaming instruction length or a broad description without evidence", () => {
+    expect(FINDINGS_SYSTEM_PROMPT).toContain("Never invent a statistic");
+    expect(FINDINGS_SYSTEM_PROMPT).toContain("Length alone is never a finding");
+    expect(FINDINGS_SYSTEM_PROMPT).toMatch(/description is too broad/);
+    expect(FINDINGS_SYSTEM_PROMPT).toContain("Do not overclaim");
+  });
+
+  it("passes sample size and tells the model not to treat character count as a finding", async () => {
+    const provider = scriptedProvider([
+      { text: '{"findings":[{"severity":"low","title":"T","explanation":"E"}]}' },
+    ]);
+
+    await generateFindings({
+      provider,
+      ...input,
+      runs: makeRuns("skill", [
+        { success: true, skillInvoked: true },
+        { success: false, skillInvoked: false },
+      ]),
+    });
+
+    const prompt = JSON.stringify(provider.requests[0].messages);
+    expect(prompt).toContain("Never invent a statistic");
+    expect(prompt).toContain("Length alone is never a finding");
+    expect(prompt).toContain("metadata, not a finding");
+    expect(prompt).toContain("Sample is small");
   });
 
   it("passes only measured numbers to the analyzer", async () => {

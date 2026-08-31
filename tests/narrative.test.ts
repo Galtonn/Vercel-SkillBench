@@ -6,6 +6,7 @@ import {
   bestConfig,
   buildComparisonNote,
   buildCompletionSummary,
+  buildSampleWarnings,
   buildTriggerDetail,
   buildTriggerNote,
   buildVerdict,
@@ -114,16 +115,37 @@ describe("buildVerdict", () => {
     expect(verdict).toMatch(/only triggered it in 50% of relevant tasks/);
   });
 
-  it("reports a harmful skill", () => {
+  it("reports a harmful skill when the sample is large enough to support that word", () => {
     const metrics = metricsFor({
       baseline: [pass(), pass(), pass(), pass()],
       skill: [fail(true), fail(true), fail(true), pass(true)],
     });
 
-    const { verdict, badge } = buildVerdict(metrics);
+    const { verdict, badge } = buildVerdict(metrics, {
+      taskCount: 12,
+      relevantScoredRuns: 40,
+      nonRelevantTaskCount: 2,
+    });
 
     expect(badge).toBe("Harmful");
     expect(verdict).toMatch(/reduced task success/);
+    expect(verdict).toMatch(/across 8 scored runs/);
+  });
+
+  it("does not label a tiny benchmark simply Harmful", () => {
+    const metrics = metricsFor({
+      baseline: [pass(), pass(), pass()],
+      skill: [fail(true), fail(true), fail(true)],
+    });
+
+    const { verdict, badge } = buildVerdict(metrics, {
+      taskCount: 3,
+      relevantScoredRuns: 6,
+      nonRelevantTaskCount: 1,
+    });
+
+    expect(badge).toBe("Underperformed in this small benchmark");
+    expect(verdict).toMatch(/too small to conclude that the skill is generally harmful/);
   });
 
   it("reports no measurable effect without claiming an improvement", () => {
@@ -370,5 +392,31 @@ describe("bestConfig", () => {
   it("returns null when nothing was scored", () => {
     const metrics = metricsFor({ baseline: [] });
     expect(bestConfig(metrics.configs)).toBeNull();
+  });
+});
+
+describe("buildSampleWarnings", () => {
+  it("warns when relevant scored runs are below 10", () => {
+    const warnings = buildSampleWarnings({
+      taskCount: 4,
+      relevantScoredRuns: 8,
+      nonRelevantTaskCount: 2,
+    });
+
+    expect(warnings.some((warning) => warning.startsWith("Small sample size"))).toBe(
+      true,
+    );
+  });
+
+  it("warns that a single non-relevant task makes the false-positive rate unstable", () => {
+    const warnings = buildSampleWarnings({
+      taskCount: 12,
+      relevantScoredRuns: 40,
+      nonRelevantTaskCount: 1,
+    });
+
+    expect(warnings.some((warning) => warning.includes("only one non-relevant task"))).toBe(
+      true,
+    );
   });
 });

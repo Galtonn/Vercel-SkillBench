@@ -8,14 +8,19 @@ import { toDetail } from "@/lib/adapters/ui";
 import { USE_SKILL_TOOL_NAME } from "@/lib/eval/conditions";
 import {
   EvaluationValidationError,
+  abandonEvaluation,
   createEvaluationRecord,
   executeEvaluation,
   validateEvaluationInput,
 } from "@/lib/eval/runner";
 import { MAX_RUNS_PER_TASK, MAX_TASKS } from "@/lib/eval/config";
-import type { ModelRequest } from "@/lib/eval/provider";
+import type { ModelProvider, ModelRequest } from "@/lib/eval/provider";
 import type { EvalTask, EvaluationRequest } from "@/lib/eval/types";
-import { loadEvaluation, saveEvaluation } from "@/lib/storage/evaluations";
+import {
+  deleteEvaluation,
+  loadEvaluation,
+  saveEvaluation,
+} from "@/lib/storage/evaluations";
 
 import { makeSkill, routedProvider, toolCall } from "./helpers/factories";
 
@@ -430,5 +435,58 @@ describe("executeEvaluation", () => {
 
   it("throws for an evaluation id that was never stored", async () => {
     await expect(executeEvaluation("missing-id")).rejects.toThrow(/not found/);
+  });
+
+  it("does not recreate a deleted evaluation after it is abandoned", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const provider: ModelProvider = {
+      model: "held-model",
+      async generate() {
+        await held;
+        return {
+          text: "RevenueSummary rename is straightforward.",
+          toolCalls: [],
+          inputTokens: 100,
+          outputTokens: 20,
+          latencyMs: 5,
+          model: "held-model",
+          finishReason: "stop",
+        };
+      },
+    };
+
+    const record = createEvaluationRecord({
+      id: "abandoned-eval",
+      skill: makeSkill(),
+      tasks: [TASKS[1]],
+      request: request({ selectedConfigs: ["baseline"], runsPerConfig: 1 }),
+      question: "Does analyze-bundle help?",
+    });
+    await saveEvaluation(record);
+
+    const running = executeEvaluation(record.id, { provider });
+    try {
+      let started = false;
+      for (let i = 0; i < 50; i += 1) {
+        const loaded = await loadEvaluation(record.id);
+        if (loaded?.status === "running") {
+          started = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(started).toBe(true);
+
+      abandonEvaluation(record.id);
+      expect(await deleteEvaluation(record.id)).toBe(true);
+    } finally {
+      release();
+    }
+
+    await running;
+    expect(await loadEvaluation(record.id)).toBeNull();
   });
 });

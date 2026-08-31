@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { computeMetrics } from "@/lib/eval/metrics";
 import {
+  deleteEvaluation,
   deserializeEvaluation,
   evaluationsDirectory,
   generateEvaluationId,
@@ -122,6 +123,27 @@ describe("save and load", () => {
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(dir);
     expect(entries.filter((entry) => entry.includes(".tmp"))).toEqual([]);
+  });
+});
+
+describe("deleteEvaluation", () => {
+  it("removes a stored evaluation", async () => {
+    const record = makeRecord();
+    await saveEvaluation(record);
+
+    expect(await deleteEvaluation(record.id)).toBe(true);
+    expect(await loadEvaluation(record.id)).toBeNull();
+    expect(await listEvaluations()).toEqual([]);
+  });
+
+  it("returns false when the evaluation does not exist", async () => {
+    expect(await deleteEvaluation("no-such-evaluation")).toBe(false);
+  });
+
+  it("refuses to delete under a rejected id", async () => {
+    await expect(deleteEvaluation("../escape")).rejects.toThrow(
+      /Invalid evaluation id/,
+    );
   });
 });
 

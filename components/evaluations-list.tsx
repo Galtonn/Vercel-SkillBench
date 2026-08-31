@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ArrowUpDown, Search } from "lucide-react";
+import { ArrowUpDown, Search, Trash2 } from "lucide-react";
 
 import { RelativeTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
@@ -30,9 +31,17 @@ export function EvaluationsList({
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [asc, setAsc] = useState(false);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
+  const router = useRouter();
+
+  const visible = useMemo(
+    () => evaluations.filter((row) => !hiddenIds.has(row.id)),
+    [evaluations, hiddenIds],
+  );
 
   const rows = useMemo(() => {
-    const filtered = evaluations.filter((row) =>
+    const filtered = visible.filter((row) =>
       `${row.skillPath} ${row.skillName}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -60,7 +69,39 @@ export function EvaluationsList({
           return 0;
       }
     });
-  }, [evaluations, query, sortKey, asc]);
+  }, [visible, query, sortKey, asc]);
+
+  async function deleteEvaluation(id: string, running: boolean) {
+    if (deletingIds.has(id)) return;
+    const confirmed = window.confirm(
+      running
+        ? "Delete this evaluation and stop the run? This cannot be undone."
+        : "Delete this evaluation? This cannot be undone.",
+    );
+    if (!confirmed) return;
+
+    setDeletingIds((current) => new Set(current).add(id));
+    try {
+      const response = await fetch(`/api/evaluations/${id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        window.alert(body.error ?? "Could not delete this evaluation.");
+        return;
+      }
+      setHiddenIds((current) => new Set(current).add(id));
+      router.refresh();
+    } catch (error) {
+      window.alert(
+        error instanceof Error ? error.message : "Could not delete this evaluation.",
+      );
+    } finally {
+      setDeletingIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
 
   function toggle(key: SortKey) {
     if (sortKey === key) setAsc((value) => !value);
@@ -70,7 +111,7 @@ export function EvaluationsList({
     }
   }
 
-  if (evaluations.length === 0) {
+  if (visible.length === 0) {
     return (
       <div className="rounded-lg border border-border px-6 py-16 text-center">
         <h2 className="text-base font-medium">No evaluations yet</h2>
@@ -99,7 +140,7 @@ export function EvaluationsList({
           />
         </div>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {rows.length} of {evaluations.length}
+          {rows.length} of {visible.length}
         </p>
       </div>
 
@@ -123,17 +164,29 @@ export function EvaluationsList({
               />
               <SortHead label="Runs" active={sortKey === "runs"} onClick={() => toggle("runs")} />
               <SortHead label="Updated" active={sortKey === "updated"} onClick={() => toggle("updated")} />
+              <th className="w-10 px-2 py-2.5">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-16 text-center text-sm text-muted-foreground">
+                <td colSpan={7} className="px-4 py-16 text-center text-sm text-muted-foreground">
                   No evaluations match “{query}”.
                 </td>
               </tr>
             ) : (
-              rows.map((row) => <EvalRow key={row.id} row={row} />)
+              rows.map((row) => (
+                <EvalRow
+                  key={row.id}
+                  row={row}
+                  onDelete={() =>
+                    void deleteEvaluation(row.id, row.status === "running")
+                  }
+                  deleting={deletingIds.has(row.id)}
+                />
+              ))
             )}
           </tbody>
         </table>
@@ -170,7 +223,15 @@ function SortHead({
   );
 }
 
-function EvalRow({ row }: { row: EvaluationSummary }) {
+function EvalRow({
+  row,
+  onDelete,
+  deleting,
+}: {
+  row: EvaluationSummary;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
   const href = `/evaluations/${row.id}`;
 
   return (
@@ -185,6 +246,9 @@ function EvalRow({ row }: { row: EvaluationSummary }) {
               revision
             </span>
           ) : null}
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {row.benchmarkSourceLabel}
+          </span>
         </Link>
       </td>
       <td className="px-4 py-3">
@@ -219,6 +283,17 @@ function EvalRow({ row }: { row: EvaluationSummary }) {
         <Link href={href} className="block">
           <RelativeTime iso={row.updatedAt} />
         </Link>
+      </td>
+      <td className="px-2 py-3">
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={deleting}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+          aria-label={`Delete ${row.skillName}`}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
       </td>
     </tr>
   );

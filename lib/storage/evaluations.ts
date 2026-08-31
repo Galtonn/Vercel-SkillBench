@@ -114,6 +114,26 @@ export async function loadEvaluation(
   }
 }
 
+/**
+ * Removes the evaluation file. Returns false when there was nothing to delete.
+ * The id is sanitised the same way as load/save, so this cannot reach outside
+ * the data directory.
+ */
+export async function deleteEvaluation(id: string): Promise<boolean> {
+  try {
+    await rm(/*turbopackIgnore: true*/ filePath(id));
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export async function listEvaluations(): Promise<EvaluationRecord[]> {
   await ensureDir();
   const directory = dataDir();

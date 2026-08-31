@@ -54,6 +54,7 @@ export function EvaluationResults({
           <ComparisonTable
             configs={evaluation.configs}
             note={evaluation.comparisonNote}
+            evaluationId={evaluation.id}
           />
           <SuccessChart configs={evaluation.configs} />
           <TriggerReliability evaluation={evaluation} />

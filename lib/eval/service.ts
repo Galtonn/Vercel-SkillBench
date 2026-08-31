@@ -3,14 +3,21 @@ import { DEFAULT_RUNS_PER_CONFIG } from "./config";
 import { generateImprovedSkill } from "./improve";
 import { createOpenAIProvider, resolveModel } from "./openai-provider";
 import { resolveRevisedSkill, resolveSkill } from "./skill-parser";
+import { normalizeDrafts, parseTaskDrafts } from "./custom-tasks";
 import { parseTasksFromText } from "./tasks";
+import { workspaceIdFromRepo } from "./fixtures";
 import {
   createEvaluationRecord,
   EvaluationValidationError,
   startEvaluationInBackground,
   validateEvaluationInput,
 } from "./runner";
-import type { ConfigId, EvalTask, EvaluationRecord } from "./types";
+import type {
+  BenchmarkSource,
+  ConfigId,
+  EvalTask,
+  EvaluationRecord,
+} from "./types";
 import {
   generateEvaluationId,
   loadEvaluation,
@@ -27,9 +34,12 @@ export type CreateEvaluationPayload = {
   skill?: unknown;
   repo?: unknown;
   tasksText?: unknown;
+  tasks?: unknown;
   benchmarkId?: unknown;
+  benchmarkSource?: unknown;
   configs?: unknown;
   runsPerConfig?: unknown;
+  workspaceId?: unknown;
 };
 
 const VALID_CONFIGS: ConfigId[] = ["baseline", "skill", "explicit", "agents-md"];
@@ -50,6 +60,13 @@ function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function parseBenchmarkSource(value: unknown): BenchmarkSource | null {
+  if (value === "built-in" || value === "ai-generated" || value === "user-authored") {
+    return value;
+  }
+  return null;
+}
+
 export async function createAndStartEvaluation(
   payload: CreateEvaluationPayload,
 ): Promise<EvaluationRecord> {
@@ -68,21 +85,36 @@ export async function createAndStartEvaluation(
       : DEFAULT_RUNS_PER_CONFIG;
 
   let tasks: EvalTask[];
+  let benchmarkSource: BenchmarkSource;
+
   if (benchmark) {
     tasks = benchmark.tasks;
+    benchmarkSource = "built-in";
   } else {
-    tasks = parseTasksFromText(asString(payload.tasksText));
+    const drafts = parseTaskDrafts(payload.tasks);
+    tasks =
+      drafts.length > 0
+        ? normalizeDrafts(drafts)
+        : parseTasksFromText(asString(payload.tasksText));
+    const claimed = parseBenchmarkSource(payload.benchmarkSource);
+    // A client cannot declare a custom task list as built-in.
+    benchmarkSource =
+      claimed === "ai-generated" ? "ai-generated" : "user-authored";
   }
 
   validateEvaluationInput({ tasks, selectedConfigs: configs, runsPerConfig });
 
-  // Resolving the skill can fail (bad frontmatter, missing file, network error).
-  // Let it throw so the caller reports the real reason instead of running an
-  // evaluation against placeholder content.
   const skill = await resolveSkill(skillReference);
 
   const repo =
     asString(payload.repo).trim() || benchmark?.repo || "no repository supplied";
+
+  const workspaceId =
+    benchmark?.workspaceId ??
+    (typeof payload.workspaceId === "string" && payload.workspaceId
+      ? payload.workspaceId
+      : null) ??
+    workspaceIdFromRepo(repo);
 
   const record = createEvaluationRecord({
     id: generateEvaluationId(skill.name),
@@ -98,7 +130,8 @@ export async function createAndStartEvaluation(
       selectedConfigs: configs,
       runsPerConfig,
       benchmarkId: benchmark?.id ?? null,
-      workspaceId: benchmark?.workspaceId ?? null,
+      benchmarkSource,
+      workspaceId,
     },
   });
 

@@ -10,12 +10,15 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
+import { BenchmarkQualityCard } from "@/components/benchmark-quality";
+import { TaskDraftEditor } from "@/components/task-draft-editor";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { useEvaluationProgress } from "@/hooks/use-evaluation-progress";
+import { validateBenchmark } from "@/lib/eval/benchmark-validation";
 import {
   ANALYZE_BUNDLE_REPO,
   ANALYZE_BUNDLE_SKILL_REFERENCE,
@@ -23,7 +26,7 @@ import {
   countRelevant,
 } from "@/lib/eval/benchmarks/analyze-bundle";
 import {
-  BENCHMARK_OPTIONS,
+  BENCHMARK_FAMILIES,
   DEFAULT_BENCHMARK_ID,
   getBenchmark,
 } from "@/lib/eval/benchmarks";
@@ -33,7 +36,18 @@ import {
   MAX_TASKS,
   estimateCost,
 } from "@/lib/eval/config";
-import type { ConfigId } from "@/lib/types";
+import {
+  draftsFromTasks,
+  draftsFromText,
+  normalizeDrafts,
+  type TaskDraft,
+} from "@/lib/eval/custom-tasks";
+import {
+  FIXTURE_OPTIONS,
+  filesForRepo,
+  workspaceIdFromRepo,
+} from "@/lib/eval/fixtures";
+import type { BenchmarkSource, ConfigId } from "@/lib/eval/types";
 import { cn } from "@/lib/utils";
 
 const CONFIGS: { id: ConfigId; label: string; hint: string }[] = [
@@ -42,11 +56,6 @@ const CONFIGS: { id: ConfigId; label: string; hint: string }[] = [
   { id: "explicit", label: "Explicit skill trigger", hint: "Instructions forced" },
   { id: "agents-md", label: "AGENTS.md", hint: "Persistent repo context" },
 ];
-
-function benchmarkPreview(benchmarkId: string) {
-  const benchmark = getBenchmark(benchmarkId);
-  return (benchmark?.tasks ?? []).map((task) => task.prompt).join("\n\n");
-}
 
 const DEFAULT_BENCHMARK = getBenchmark(DEFAULT_BENCHMARK_ID);
 const DEMO_TASK_COUNT = DEFAULT_BENCHMARK?.tasks.length ?? 0;
@@ -66,9 +75,11 @@ export function NewEvaluationForm() {
   const [benchmarkId, setBenchmarkId] = useState(DEFAULT_BENCHMARK_ID);
   const [skill, setSkill] = useState(ANALYZE_BUNDLE_SKILL_REFERENCE);
   const [repo, setRepo] = useState(ANALYZE_BUNDLE_REPO);
-  const [tasksText, setTasksText] = useState(() =>
-    benchmarkPreview(DEFAULT_BENCHMARK_ID),
-  );
+  const [drafts, setDrafts] = useState<TaskDraft[]>([]);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [benchmarkSource, setBenchmarkSource] =
+    useState<BenchmarkSource>("user-authored");
   const [runs, setRuns] = useState(DEFAULT_RUNS_PER_CONFIG);
   const [configs, setConfigs] = useState<Record<ConfigId, boolean>>({
     baseline: true,
@@ -78,6 +89,7 @@ export function NewEvaluationForm() {
   });
 
   const [checking, setChecking] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [skillPreview, setSkillPreview] = useState<SkillPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,14 +109,30 @@ export function NewEvaluationForm() {
   );
 
   const benchmark = getBenchmark(benchmarkId);
+  const family = BENCHMARK_FAMILIES.find((entry) =>
+    entry.presets.some((preset) => preset.id === benchmarkId),
+  );
   const benchmarkTasks = benchmark?.tasks ?? [];
+  const benchmarkDrafts = useMemo(() => {
+    const source = getBenchmark(benchmarkId);
+    return source ? draftsFromTasks(source.tasks) : [];
+  }, [benchmarkId]);
+  const customTasks = normalizeDrafts(drafts);
+  const activeTasks = useBenchmark ? benchmarkTasks : customTasks;
 
-  const taskCount = useBenchmark
-    ? benchmarkTasks.length
-    : tasksText.split(/\n\s*\n/).filter((block) => block.trim()).length;
+  const taskCount = activeTasks.length;
+  const judgedTasks = useBenchmark
+    ? countJudged(benchmarkTasks)
+    : customTasks.filter((task) => task.expected.type === "llm_judge").length;
 
-  // Ad-hoc tasks are all judged; a benchmark may score some deterministically.
-  const judgedTasks = useBenchmark ? countJudged(benchmarkTasks) : taskCount;
+  const workspaceId = useBenchmark
+    ? (benchmark?.workspaceId ?? null)
+    : workspaceIdFromRepo(repo);
+
+  const quality = validateBenchmark(activeTasks, {
+    filePaths: filesForRepo(useBenchmark ? benchmark?.repo : repo),
+    noWorkspace: !workspaceId,
+  });
 
   const cost = estimateCost({
     tasks: Math.min(taskCount, MAX_TASKS),
@@ -118,32 +146,41 @@ export function NewEvaluationForm() {
   }
 
   function selectBenchmark(id: string) {
+    const next = getBenchmark(id);
     setBenchmarkId(id);
-    setTasksText(benchmarkPreview(id));
+    if (next) {
+      setSkill(next.skillReference);
+      setRepo(next.repo);
+    }
+    setError(null);
+  }
+
+  function selectFamily(familyId: string) {
+    const next = BENCHMARK_FAMILIES.find((entry) => entry.id === familyId);
+    if (!next) return;
+    selectBenchmark(next.presets[0].id);
+  }
+
+  function enterCustomFromBenchmark() {
+    const source = getBenchmark(benchmarkId);
+    setUseBenchmark(false);
+    setDrafts(source ? draftsFromTasks(source.tasks) : []);
+    setBenchmarkSource("user-authored");
     setError(null);
   }
 
   function toggleBenchmark() {
-    setUseBenchmark((value) => {
-      // Re-checking restores the preset the user last had selected, so the
-      // textarea never shows prompts that would not actually be run.
-      if (!value) setTasksText(benchmarkPreview(benchmarkId));
-      return !value;
-    });
-    setError(null);
-  }
-
-  /**
-   * Editing the prompts means they are no longer the built-in benchmark, so the
-   * form leaves preset mode and keeps the edited text as the ad-hoc starting
-   * point. Without this the textarea and the submitted tasks would disagree.
-   */
-  function editTasks(value: string) {
-    setTasksText(value);
     if (useBenchmark) {
-      setUseBenchmark(false);
-      setError(null);
+      enterCustomFromBenchmark();
+      return;
     }
+    setUseBenchmark(true);
+    const next = getBenchmark(benchmarkId);
+    if (next) {
+      setSkill(next.skillReference);
+      setRepo(next.repo);
+    }
+    setError(null);
   }
 
   function applyDemoPreset() {
@@ -151,7 +188,6 @@ export function NewEvaluationForm() {
     setBenchmarkId(DEFAULT_BENCHMARK_ID);
     setSkill(ANALYZE_BUNDLE_SKILL_REFERENCE);
     setRepo(ANALYZE_BUNDLE_REPO);
-    setTasksText(benchmarkPreview(DEFAULT_BENCHMARK_ID));
     setRuns(1);
     setConfigs({
       baseline: true,
@@ -187,6 +223,53 @@ export function NewEvaluationForm() {
     }
   }
 
+  async function generateFromSkill() {
+    setGenerating(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/benchmarks/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill, repo, workspaceId }),
+      });
+      const body = (await response.json()) as {
+        drafts?: TaskDraft[];
+        error?: string;
+      };
+      if (!response.ok || !body.drafts?.length) {
+        setError(body.error ?? "Could not generate a benchmark.");
+        return;
+      }
+      setUseBenchmark(false);
+      setDrafts(body.drafts);
+      setBenchmarkSource("ai-generated");
+      setPasteOpen(false);
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not reach the server.",
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function applyPaste() {
+    const next = draftsFromText(pasteText);
+    if (next.length === 0) return;
+    setDrafts(next);
+    setBenchmarkSource("user-authored");
+    setPasteOpen(false);
+    setPasteText("");
+  }
+
+  function editDrafts(next: TaskDraft[]) {
+    setDrafts(next);
+    if (benchmarkSource === "ai-generated") {
+      // Editing generated tasks is still generated provenance until they
+      // rewrite the set from scratch; keep the label.
+    }
+  }
+
   async function submit() {
     setSubmitting(true);
     setError(null);
@@ -197,8 +280,11 @@ export function NewEvaluationForm() {
         body: JSON.stringify({
           skill,
           repo,
-          tasksText: useBenchmark ? "" : tasksText,
+          tasks: useBenchmark ? [] : drafts,
+          tasksText: "",
           benchmarkId: useBenchmark ? benchmarkId : null,
+          benchmarkSource: useBenchmark ? "built-in" : benchmarkSource,
+          workspaceId,
           configs: selectedConfigs,
           runsPerConfig: runs,
         }),
@@ -317,7 +403,7 @@ export function NewEvaluationForm() {
             placeholder={ANALYZE_BUNDLE_SKILL_REFERENCE}
             className="font-mono"
           />
-          <span className="mt-2 flex items-center gap-3">
+          <span className="mt-2 flex flex-wrap items-center gap-3">
             <Button
               type="button"
               variant="outline"
@@ -345,20 +431,43 @@ export function NewEvaluationForm() {
         </Field>
 
         <Field
-          label="Repository"
+          label="Repository fixture"
           hint={
-            useBenchmark
-              ? "The built-in benchmark mounts fixtures/bundle-bench read-only, with list_files and read_file."
-              : "Label only. Ad-hoc evaluations do not mount a repository, so tasks must be self-contained."
+            workspaceId
+              ? `Mounted read-only as ${workspaceId}, with list_files and read_file.`
+              : "Pick a fixture so the agent can read files. A label that is not a known fixture is not mounted."
           }
         >
-          <Input
-            value={repo}
-            onChange={(e) => setRepo(e.target.value)}
-            placeholder={ANALYZE_BUNDLE_REPO}
-            className="font-mono"
-            readOnly={useBenchmark}
-          />
+          {useBenchmark ? (
+            <Input value={repo} readOnly className="font-mono" />
+          ) : (
+            <div className="space-y-2">
+              <div className="inline-flex flex-wrap items-center rounded-md border border-border p-0.5">
+                {FIXTURE_OPTIONS.map((fixture) => (
+                  <button
+                    key={fixture.id}
+                    type="button"
+                    aria-pressed={repo === fixture.repo}
+                    onClick={() => setRepo(fixture.repo)}
+                    className={cn(
+                      "rounded-[5px] px-2.5 py-1 text-xs font-medium",
+                      repo === fixture.repo
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {fixture.label}
+                  </button>
+                ))}
+              </div>
+              <Input
+                value={repo}
+                onChange={(e) => setRepo(e.target.value)}
+                placeholder="fixtures/ui-bench"
+                className="font-mono"
+              />
+            </div>
+          )}
         </Field>
 
         <div>
@@ -366,42 +475,123 @@ export function NewEvaluationForm() {
             <span className="text-sm font-medium">Evaluation tasks</span>
             <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <Checkbox checked={useBenchmark} onCheckedChange={toggleBenchmark} />
-              Use built-in analyze-bundle benchmark
+              Use built-in benchmark
             </label>
           </div>
+
           {useBenchmark ? (
-            <div className="mb-2 inline-flex items-center rounded-md border border-border p-0.5">
-              {BENCHMARK_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
+            <>
+              <div className="mb-2 flex flex-wrap gap-2">
+                <div className="inline-flex items-center rounded-md border border-border p-0.5">
+                  {BENCHMARK_FAMILIES.map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      aria-pressed={family?.id === entry.id}
+                      onClick={() => selectFamily(entry.id)}
+                      className={cn(
+                        "rounded-[5px] px-2.5 py-1 text-xs font-medium",
+                        family?.id === entry.id
+                          ? "bg-foreground text-background"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
+                {family && family.presets.length > 1 ? (
+                  <div className="inline-flex items-center rounded-md border border-border p-0.5">
+                    {family.presets.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-pressed={option.id === benchmarkId}
+                        onClick={() => selectBenchmark(option.id)}
+                        className={cn(
+                          "rounded-[5px] px-2.5 py-1 text-xs font-medium",
+                          option.id === benchmarkId
+                            ? "bg-foreground text-background"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {option.shortLabel} · {option.tasks.length}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <p className="mb-2 text-xs text-muted-foreground">
+                {benchmark
+                  ? `${benchmark.familyLabel}: ${benchmarkTasks.length} curated tasks with author-supplied ground truth, ${countRelevant(benchmarkTasks)} skill-relevant and ${benchmarkTasks.length - countRelevant(benchmarkTasks)} deliberately not. Each task has its own prompt, relevance, and scoring. Customize to edit them.`
+                  : null}
+              </p>
+              <TaskDraftEditor drafts={benchmarkDrafts} readOnly />
+              <button
+                type="button"
+                className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={enterCustomFromBenchmark}
+              >
+                Customize these tasks
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {benchmarkSource === "ai-generated"
+                  ? "AI-generated benchmark. Review relevance and criteria before running — generated ground truth is a draft, not a fact."
+                  : "User-authored benchmark. Mark which tasks the skill should help with, and give each one scoring criteria. Do not assume every task is skill-relevant."}
+              </p>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Button
                   type="button"
-                  aria-pressed={option.id === benchmarkId}
-                  onClick={() => selectBenchmark(option.id)}
-                  className={cn(
-                    "rounded-[5px] px-2.5 py-1 text-xs font-medium",
-                    option.id === benchmarkId
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
+                  variant="outline"
+                  size="sm"
+                  onClick={generateFromSkill}
+                  disabled={generating || !skill.trim() || !workspaceId}
                 >
-                  {option.shortLabel} · {option.tasks.length}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <p className="mb-2 text-xs text-muted-foreground">
-            {useBenchmark && benchmark
-              ? `${benchmark.shortLabel}: ${benchmarkTasks.length} curated tasks with author-supplied ground truth, ${countRelevant(benchmarkTasks)} skill-relevant and ${benchmarkTasks.length - countRelevant(benchmarkTasks)} deliberately not, so false-positive skill loading is measurable. Editing them switches to ad-hoc tasks.`
-              : `One task per paragraph, up to ${MAX_TASKS}. Ad-hoc tasks are all treated as skill-relevant and scored by the LLM judge against generic criteria.`}
-          </p>
-          <Textarea
-            value={tasksText}
-            onChange={(e) => editTasks(e.target.value)}
-            className={cn(
-              "min-h-[148px] font-mono text-[13px] leading-relaxed",
-              useBenchmark && "text-muted-foreground",
-            )}
-          />
+                  {generating ? (
+                    <>
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                      Generating…
+                    </>
+                  ) : (
+                    "Generate benchmark from skill"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPasteOpen((value) => !value)}
+                >
+                  Paste prompts
+                </Button>
+              </div>
+              {pasteOpen ? (
+                <div className="mb-3 space-y-2">
+                  <Textarea
+                    value={pasteText}
+                    onChange={(event) => setPasteText(event.target.value)}
+                    placeholder="One task per paragraph"
+                    className="min-h-[100px] font-mono text-[13px] leading-relaxed"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Pasted prompts start as judged and skill-relevant, with no
+                    task-specific criteria. Set relevance and criteria before you
+                    run.
+                  </p>
+                  <Button type="button" size="sm" variant="outline" onClick={applyPaste}>
+                    Replace tasks from paste
+                  </Button>
+                </div>
+              ) : null}
+              <TaskDraftEditor drafts={drafts} onChange={editDrafts} />
+              <div className="mt-4">
+                <BenchmarkQualityCard quality={quality} />
+              </div>
+            </>
+          )}
         </div>
 
         <div>
@@ -478,6 +668,8 @@ export function NewEvaluationForm() {
             {cost.estimatedModelCalls} model requests in total.
           </p>
         </div>
+
+        {useBenchmark ? <BenchmarkQualityCard quality={quality} /> : null}
 
         {error ? (
           <div className="flex items-start gap-2 rounded-md border border-border px-4 py-3 text-sm">

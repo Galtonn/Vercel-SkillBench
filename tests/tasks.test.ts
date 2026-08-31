@@ -12,11 +12,16 @@ import {
 } from "@/lib/eval/benchmarks/analyze-bundle";
 import {
   BENCHMARKS,
+  BENCHMARK_FAMILIES,
   BENCHMARK_OPTIONS,
   DEFAULT_BENCHMARK_ID,
   WORKSPACE_DIRECTORIES,
   getBenchmark,
 } from "@/lib/eval/benchmarks";
+import {
+  WEB_DESIGN_BENCHMARK_ID,
+  WEB_DESIGN_TASKS,
+} from "@/lib/eval/benchmarks/web-design-guidelines";
 import { MAX_TASKS, estimateCost } from "@/lib/eval/config";
 import { countJudgedTasks, parseTasksFromText } from "@/lib/eval/tasks";
 
@@ -58,11 +63,18 @@ describe("parseTasksFromText", () => {
     expect(tasks).toHaveLength(MAX_TASKS);
   });
 
-  it("marks ad-hoc tasks relevant so a missed invocation is counted, not ignored", () => {
+  it("marks pasted tasks relevant so a missed invocation is counted, not ignored", () => {
     const [task] = parseTasksFromText("Reduce the client bundle.");
 
     expect(task.skillRelevant).toBe(true);
     expect(task.expected.type).toBe("llm_judge");
+  });
+
+  it("does not let a structured false be overwritten by the paste fallback", () => {
+    // The paste path is conservative; the structured path is the one that can
+    // label a task as not skill-relevant.
+    const [task] = parseTasksFromText("Rename a component.");
+    expect(task.skillRelevant).toBe(true);
   });
 });
 
@@ -194,9 +206,10 @@ describe("benchmark registry", () => {
     expect(getBenchmark(DEFAULT_BENCHMARK_ID)!.tasks).toHaveLength(3);
   });
 
-  it("offers three sizes, from live demo to full benchmark", () => {
+  it("offers three analyze-bundle sizes, from live demo to full benchmark", () => {
+    const analyze = BENCHMARK_FAMILIES.find((family) => family.id === "analyze-bundle")!;
     expect(
-      BENCHMARK_OPTIONS.map((option) => [option.shortLabel, option.tasks.length]),
+      analyze.presets.map((option) => [option.shortLabel, option.tasks.length]),
     ).toEqual([
       ["Live demo", 3],
       ["Standard", 5],
@@ -217,13 +230,14 @@ describe("benchmark registry", () => {
     expect(standard.tasks).toBe(ANALYZE_BUNDLE_STANDARD_TASKS);
   });
 
-  it("points every benchmark at the same skill, fixture, and question", () => {
-    const [first] = BENCHMARK_OPTIONS;
-
-    for (const option of BENCHMARK_OPTIONS) {
-      expect(option.skillReference).toBe(first.skillReference);
-      expect(option.workspaceId).toBe(first.workspaceId);
-      expect(option.question).toBe(first.question);
+  it("points every preset in a family at the same skill, fixture, and question", () => {
+    for (const family of BENCHMARK_FAMILIES) {
+      const [first] = family.presets;
+      for (const option of family.presets) {
+        expect(option.skillReference).toBe(first.skillReference);
+        expect(option.workspaceId).toBe(first.workspaceId);
+        expect(option.question).toBe(first.question);
+      }
     }
   });
 
@@ -236,6 +250,37 @@ describe("benchmark registry", () => {
   it("returns null for an unknown or missing id", () => {
     expect(getBenchmark("nope")).toBeNull();
     expect(getBenchmark(null)).toBeNull();
+  });
+});
+
+describe("web-design-guidelines benchmark", () => {
+  it("is registered against ui-bench and a real skill reference", () => {
+    const benchmark = getBenchmark(WEB_DESIGN_BENCHMARK_ID)!;
+
+    expect(benchmark.workspaceId).toBe("ui-bench");
+    expect(WORKSPACE_DIRECTORIES[benchmark.workspaceId]).toBe("ui-bench");
+    expect(benchmark.skillReference).toBe(
+      "vercel-labs/agent-skills/web-design-guidelines",
+    );
+    expect(benchmark.tasks).toBe(WEB_DESIGN_TASKS);
+  });
+
+  it("has 4-6 skill-relevant tasks and 1-2 non-relevant tasks, each with ground truth", () => {
+    const relevant = WEB_DESIGN_TASKS.filter((task) => task.skillRelevant);
+    const irrelevant = WEB_DESIGN_TASKS.filter((task) => !task.skillRelevant);
+
+    expect(relevant.length).toBeGreaterThanOrEqual(4);
+    expect(relevant.length).toBeLessThanOrEqual(6);
+    expect(irrelevant.length).toBeGreaterThanOrEqual(1);
+    expect(irrelevant.length).toBeLessThanOrEqual(2);
+
+    for (const task of relevant) {
+      expect(task.expected.type).toBe("llm_judge");
+      if (task.expected.type === "llm_judge") {
+        expect(task.expected.criteria.length).toBeGreaterThan(0);
+        expect((task.expected.referenceAnswer ?? "").length).toBeGreaterThan(20);
+      }
+    }
   });
 });
 
@@ -276,8 +321,9 @@ describe("estimateCost", () => {
     expect(preview.estimatedModelCalls).toBe(153);
   });
 
-  it("grows monotonically with preset size", () => {
-    const sizes = BENCHMARK_OPTIONS.map(
+  it("grows monotonically with analyze-bundle preset size", () => {
+    const analyze = BENCHMARK_FAMILIES.find((family) => family.id === "analyze-bundle")!;
+    const sizes = analyze.presets.map(
       (option) => previewPreset(option.id).estimatedModelCalls,
     );
 

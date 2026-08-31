@@ -16,6 +16,41 @@ const MATERIAL_PP = 5;
 /** Above this trigger rate we call discovery reliable. */
 const RELIABLE_TRIGGER_PCT = 80;
 
+/** Below this many scored runs on skill-relevant tasks, results are directional. */
+export const SMALL_RELEVANT_SCORED_RUNS = 10;
+
+export type SampleContext = {
+  taskCount: number;
+  relevantScoredRuns: number;
+  nonRelevantTaskCount: number;
+};
+
+export function isSmallSample(context: SampleContext): boolean {
+  return (
+    context.relevantScoredRuns < SMALL_RELEVANT_SCORED_RUNS ||
+    context.taskCount < 5
+  );
+}
+
+export function buildSampleWarnings(context: SampleContext): string[] {
+  const warnings: string[] = [];
+  if (context.relevantScoredRuns < SMALL_RELEVANT_SCORED_RUNS) {
+    warnings.push(
+      "Small sample size. Treat these results as directional rather than conclusive.",
+    );
+  }
+  if (context.nonRelevantTaskCount === 1) {
+    warnings.push(
+      "False-positive rate is based on only one non-relevant task and is highly unstable.",
+    );
+  } else if (context.nonRelevantTaskCount === 0 && context.taskCount > 0) {
+    warnings.push(
+      "This benchmark has no non-relevant tasks, so false-positive triggering cannot be measured.",
+    );
+  }
+  return warnings;
+}
+
 export function formatPpDelta(value: number): string {
   const rounded = Math.round(value * 10) / 10;
   const sign = rounded > 0 ? "+" : rounded < 0 ? "−" : "";
@@ -48,7 +83,10 @@ export function describeDeltaVsBaseline(
 
 export type Verdict = { verdict: string; badge: string };
 
-export function buildVerdict(metrics: EvaluationMetrics | null): Verdict {
+export function buildVerdict(
+  metrics: EvaluationMetrics | null,
+  sample?: SampleContext,
+): Verdict {
   if (!metrics) {
     return {
       verdict: "This evaluation has not produced results yet.",
@@ -58,6 +96,15 @@ export function buildVerdict(metrics: EvaluationMetrics | null): Verdict {
 
   const effectiveness = metrics.effectiveness;
   const triggerRate = metrics.trigger?.triggerRate ?? null;
+  const small = sample ? isSmallSample(sample) : false;
+  const scored = metrics.totalRuns - metrics.erroredRuns;
+  const samplePhrase = small
+    ? sample && sample.taskCount > 0
+      ? ` in this ${sample.taskCount}-task benchmark`
+      : " in this small benchmark"
+    : scored > 0
+      ? ` across ${scored} scored runs`
+      : "";
 
   if (effectiveness === null) {
     const skill = metrics.configs.find((config) => config.id === "skill");
@@ -78,27 +125,40 @@ export function buildVerdict(metrics: EvaluationMetrics | null): Verdict {
   const reliable = triggerRate !== null && triggerRate >= RELIABLE_TRIGGER_PCT;
 
   if (effectiveness >= MATERIAL_PP) {
+    const caveat = small
+      ? " Treat this as directional; the sample is too small to conclude the skill is generally useful."
+      : "";
     if (triggerRate === null) {
       return {
-        verdict: `The skill improves task success by ${ppWord(effectiveness)}. Trigger reliability was not measured in this run.`,
-        badge: "Useful",
+        verdict: `The skill improves task success by ${ppWord(effectiveness)}${samplePhrase}.${caveat}`,
+        badge: small ? "Useful in this small benchmark" : "Useful",
       };
     }
     if (reliable) {
       return {
-        verdict: `The skill improves task success by ${ppWord(effectiveness)} and the agent triggered it in ${formatPct(triggerRate)} of relevant tasks.`,
-        badge: "Useful, reliable trigger",
+        verdict: `The skill improves task success by ${ppWord(effectiveness)}${samplePhrase} and the agent triggered it in ${formatPct(triggerRate)} of relevant tasks.${caveat}`,
+        badge: small
+          ? "Useful in this small benchmark"
+          : "Useful, reliable trigger",
       };
     }
     return {
-      verdict: `The skill improves task success when invoked, but the agent only triggered it in ${formatPct(triggerRate)} of relevant tasks.`,
-      badge: "Useful, unreliable trigger",
+      verdict: `The skill improves task success when invoked, but the agent only triggered it in ${formatPct(triggerRate)} of relevant tasks.${caveat}`,
+      badge: small
+        ? "Useful in this small benchmark"
+        : "Useful, unreliable trigger",
     };
   }
 
   if (effectiveness <= -MATERIAL_PP) {
+    if (small) {
+      return {
+        verdict: `Skill underperformed Baseline by ${ppWord(effectiveness)}${samplePhrase}. The sample is too small to conclude that the skill is generally harmful.`,
+        badge: "Underperformed in this small benchmark",
+      };
+    }
     return {
-      verdict: `The skill reduced task success relative to Baseline by ${ppWord(effectiveness)}.`,
+      verdict: `The skill reduced task success relative to Baseline by ${ppWord(effectiveness)}${samplePhrase}.`,
       badge: "Harmful",
     };
   }
