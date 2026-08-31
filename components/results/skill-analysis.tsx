@@ -1,13 +1,14 @@
-"use client";
-
-import { useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, TriangleAlert } from "lucide-react";
 
 import { CodeBlock } from "@/components/code-block";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EvaluationDetail, Finding } from "@/lib/types";
 
+/**
+ * Findings come from a single analysis call over the evaluation's real metrics,
+ * classifications, invocation reasons, and judge reasons. When that call fails or
+ * returns something unusable, this shows the failure rather than filler.
+ */
 export function SkillAnalysis({ evaluation }: { evaluation: EvaluationDetail }) {
   return (
     <section className="py-10">
@@ -20,19 +21,33 @@ export function SkillAnalysis({ evaluation }: { evaluation: EvaluationDetail }) 
           </p>
         </div>
       </div>
-      <div className="space-y-8">
-        {evaluation.findings.map((finding, index) => (
-          <FindingCard key={finding.id} finding={finding} index={index} />
-        ))}
+
+      <div className="mb-8 max-w-3xl">
+        <CodeBlock label={`Skill description under test · ${evaluation.skill.sourceLabel}`}>
+          {evaluation.skill.description}
+        </CodeBlock>
       </div>
+
+      {evaluation.findings.length === 0 ? (
+        <div className="flex max-w-2xl items-start gap-2 rounded-lg border border-border px-4 py-3 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <p className="text-muted-foreground">
+            {evaluation.findingsError ??
+              "No findings were produced for this evaluation."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {evaluation.findings.map((finding, index) => (
+            <FindingCard key={finding.id} finding={finding} index={index} />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
 
 function FindingCard({ finding, index }: { finding: Finding; index: number }) {
-  const [applied, setApplied] = useState(false);
-  const current = applied && finding.suggested ? finding.suggested : finding.current;
-
   return (
     <article className="rounded-lg border border-border p-5">
       <div className="mb-3 flex items-center gap-2">
@@ -43,34 +58,6 @@ function FindingCard({ finding, index }: { finding: Finding; index: number }) {
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
         {finding.explanation}
       </p>
-
-      {finding.current ? (
-        <div className="mt-5 grid gap-3 md:grid-cols-2">
-          <CodeBlock label={applied ? "Updated" : "Current"}>{current ?? ""}</CodeBlock>
-          <CodeBlock label="Suggested">{finding.suggested ?? ""}</CodeBlock>
-        </div>
-      ) : finding.suggested ? (
-        <div className="mt-5">
-          <CodeBlock label="Suggested change">{finding.suggested}</CodeBlock>
-        </div>
-      ) : null}
-
-      {finding.extra ? (
-        <p className="mt-4 font-mono text-sm">{finding.extra}</p>
-      ) : null}
-
-      {finding.current && finding.suggested ? (
-        <Button
-          type="button"
-          variant={applied ? "secondary" : "outline"}
-          size="sm"
-          className="mt-4"
-          onClick={() => setApplied(true)}
-          disabled={applied}
-        >
-          {applied ? "Suggestion applied" : "Apply suggestion"}
-        </Button>
-      ) : null}
     </article>
   );
 }

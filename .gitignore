@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# evaluation results, written at runtime. To ship one as a demo fixture:
+# git add -f data/evaluations/<id>.json
+/data/
+
 # vercel
 .vercel
 

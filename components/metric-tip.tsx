@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { METRIC_TIPS } from "@/lib/mock-data";
+import { METRIC_TIPS } from "@/lib/ui-copy";
 import { cn } from "@/lib/utils";
 
 export function MetricTip({

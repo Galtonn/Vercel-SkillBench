@@ -30,5 +30,8 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // `fixtures/` is benchmark input, not application code. It intentionally
+  // imports packages that are not installed and contains a deliberate typing
+  // error that one of the benchmark tasks asks the agent to find.
+  "exclude": ["node_modules", "fixtures"]
 }

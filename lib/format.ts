@@ -1,17 +1,32 @@
-export function formatPp(value: number) {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value} pp`;
+export function formatPp(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "−" : "";
+  return `${sign}${Math.abs(rounded)} pp`;
 }
 
 export function formatPct(value: number | null | undefined) {
   if (value === null || value === undefined) return "—";
-  return `${value}%`;
+  return `${Math.round(value)}%`;
 }
 
-export function formatTokens(value: number) {
-  return `${value.toFixed(1)}k`;
+/** Takes a raw token count. */
+export function formatTokens(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  if (value < 1000) return String(Math.round(value));
+  return `${(value / 1000).toFixed(1)}k`;
 }
 
-export function formatRuntime(value: number) {
-  return `${value}s`;
+/** Takes seconds. */
+export function formatRuntime(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  if (value < 60) return `${Math.round(value)}s`;
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.round(value % 60);
+  return `${minutes}m ${seconds}s`;
+}
+
+export function formatCount(value: number | null | undefined) {
+  if (value === null || value === undefined) return "—";
+  return value.toLocaleString();
 }

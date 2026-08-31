@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { MAX_RUNS_PER_TASK, MAX_TASKS } from "@/lib/eval/config";
+import { CONFIG_EXPLAINERS } from "@/lib/ui-copy";
 import { cn } from "@/lib/utils";
 
 export default function DocsPage() {
@@ -8,72 +10,126 @@ export default function DocsPage() {
     <div className="mx-auto max-w-[720px] px-6 py-12">
       <h1 className="text-3xl font-semibold tracking-tight">Docs</h1>
       <p className="mt-2 text-[15px] text-muted-foreground">
-        SkillBench evaluates whether an Agent Skill actually improves a coding
-        agent — and whether the agent can find the skill when it needs it.
+        SkillBench measures whether an Agent Skill improves a coding agent — and
+        separately, whether the agent recognises when to load it.
       </p>
 
       <section className="mt-12 space-y-4">
-        <h2 className="text-lg font-medium">What SkillBench measures</h2>
+        <h2 className="text-lg font-medium">Three separate questions</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          A skill can contain the right knowledge and still fail. Agents may
-          never load it, load it too late, or spend tokens on it for tasks that
-          don&apos;t need it. SkillBench runs the same tasks across four
-          configurations so you can see which of those is happening.
+          A skill can contain exactly the right knowledge and still fail in
+          practice, because the agent never loads it. Conflating those two
+          failures makes a skill impossible to debug, so SkillBench measures them
+          apart.
         </p>
-        <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
-          <li>
-            <span className="text-foreground">Baseline</span> — no skill, no extra context.
-          </li>
-          <li>
-            <span className="text-foreground">Skill</span> — SKILL.md is available; the agent must choose to load it.
-          </li>
-          <li>
-            <span className="text-foreground">Explicit trigger</span> — the prompt requires the skill. Isolates instruction quality from discovery.
-          </li>
-          <li>
-            <span className="text-foreground">AGENTS.md</span> — the same knowledge is persistent repository context.
-          </li>
-        </ul>
-      </section>
-
-      <section className="mt-12 space-y-4">
-        <h2 className="text-lg font-medium">Metrics</h2>
         <dl className="space-y-4 text-sm">
           <div>
-            <dt className="font-medium">Task success</dt>
+            <dt className="font-medium">Discovery</dt>
             <dd className="mt-1 text-muted-foreground">
-              Percentage of runs that satisfied the evaluator&apos;s expected outcome.
+              Given only the skill&apos;s name and description, does the agent
+              recognise that this task calls for it?
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Trigger rate</dt>
+            <dt className="font-medium">Invocation</dt>
             <dd className="mt-1 text-muted-foreground">
-              Percentage of tasks where the skill was loaded when the evaluator
-              expected it to be useful.
+              Does it actually load the instructions? SkillBench gives the model a
+              real <span className="font-mono">use_skill</span> tool and records
+              only genuine tool calls. Invocation is never inferred from the
+              wording of an answer.
             </dd>
           </div>
           <div>
-            <dt className="font-medium">Skill effectiveness</dt>
+            <dt className="font-medium">Effectiveness</dt>
             <dd className="mt-1 text-muted-foreground">
-              Difference in task success between baseline and skill-enabled runs.
+              When the instructions are in context, do they actually raise task
+              success?
             </dd>
           </div>
         </dl>
       </section>
 
       <section className="mt-12 space-y-4">
-        <h2 className="text-lg font-medium">This prototype</h2>
+        <h2 className="text-lg font-medium">The four conditions</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          SkillBench is a product demo. Evaluations, trajectories, and skill
-          rewrites are mocked so you can walk through the workflow without
-          running agents. Start with{" "}
-          <Link
-            href="/evaluations/analyze-bundle"
-            className="underline underline-offset-4 hover:text-foreground"
-          >
-            analyze-bundle
-          </Link>
-          .
+          Same tasks, same model, same tools. Only the delivery of the skill
+          changes, so a difference in success is attributable to delivery.
+        </p>
+        <ul className="space-y-3 text-sm leading-relaxed">
+          {CONFIG_EXPLAINERS.map((config) => (
+            <li key={config.id}>
+              <span className="font-medium">{config.name}</span>
+              <span className="mt-0.5 block text-muted-foreground">
+                {config.summary}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Explicit Trigger and AGENTS.md always deliver the instructions, so their
+          trigger rate is 100% by construction and is labelled as such rather than
+          presented as a measurement. AGENTS.md here is a controlled
+          delivery-strategy comparison, not a reproduction of any specific coding
+          agent&apos;s handling of that file.
+        </p>
+      </section>
+
+      <section className="mt-12 space-y-4">
+        <h2 className="text-lg font-medium">Run classification</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          In the Skill condition, each run is classified by crossing the
+          benchmark&apos;s ground truth about relevance with what the agent did and
+          how it scored. The category that matters most is{" "}
+          <span className="font-mono">missed_trigger_failure</span>: the task
+          needed the skill, the agent never loaded it, and the answer was wrong.
+          That is a discovery bug, not a knowledge bug, and it is invisible if you
+          only measure average success.
+        </p>
+      </section>
+
+      <section className="mt-12 space-y-4">
+        <h2 className="text-lg font-medium">Scoring</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Tasks with a checkable answer use a deterministic substring check.
+          Analysis tasks use a separate judge call that receives the task, the
+          criteria, and the answer — and is never told which condition produced it,
+          so it cannot favour one. A judge response that does not parse is retried
+          once, then the run is marked unscored and excluded from rates rather than
+          counted as a failure.
+        </p>
+      </section>
+
+      <section className="mt-12 space-y-4">
+        <h2 className="text-lg font-medium">What this build does and does not do</h2>
+        <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted-foreground">
+          <li>
+            Agents get read-only repository access:{" "}
+            <span className="font-mono">list_files</span> and{" "}
+            <span className="font-mono">read_file</span>, jailed to the benchmark
+            fixture. There is no shell and no write path, so model output cannot
+            execute or modify anything.
+          </li>
+          <li>
+            Because nothing is executed, there is no build-validation metric. Task
+            success is judged from the agent&apos;s answer, not from a compile.
+          </li>
+          <li>
+            Limits: at most {MAX_TASKS} tasks and {MAX_RUNS_PER_TASK} runs per
+            configuration, with bounded concurrency.
+          </li>
+          <li>
+            Results are stored as JSON on disk. A completed evaluation stays
+            viewable without a working API key.
+          </li>
+        </ul>
+      </section>
+
+      <section className="mt-12 space-y-4">
+        <h2 className="text-lg font-medium">Get started</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Set <span className="font-mono">OPENAI_API_KEY</span>, then run the
+          built-in <span className="font-mono">analyze-bundle</span> benchmark from
+          the New Evaluation page.
         </p>
         <Link href="/new" className={cn(buttonVariants(), "mt-2 inline-flex")}>
           New Evaluation

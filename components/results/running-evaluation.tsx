@@ -1,75 +1,123 @@
 "use client";
 
-import Link from "next/link";
-import { Check, LoaderCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { LoaderCircle, TriangleAlert } from "lucide-react";
 
 import { EvaluationHeader } from "@/components/results/evaluation-header";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { PROGRESS_STEPS } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
-import type { EvaluationSummary } from "@/lib/types";
+import { useEvaluationProgress } from "@/hooks/use-evaluation-progress";
+import type { EvaluationProgressView, EvaluationSummary } from "@/lib/types";
 
+/**
+ * Live view for an evaluation that is still executing. Every number shown comes
+ * from the server's persisted progress, so the bar tracks completed agent runs.
+ */
 export function RunningEvaluation({
-  evaluation,
+  summary,
+  initialProgress,
 }: {
-  evaluation: EvaluationSummary;
+  summary: EvaluationSummary;
+  initialProgress: EvaluationProgressView;
 }) {
-  const completed = evaluation.completedRuns ?? 16;
-  const total = evaluation.runs;
-  const pct = Math.round((completed / total) * 100);
-  const currentStep = 3;
+  const router = useRouter();
+  const { progress, finished, streamError } = useEvaluationProgress(
+    summary.id,
+    initialProgress,
+  );
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const current = progress ?? initialProgress;
+
+  useEffect(() => {
+    if (finished) router.refresh();
+  }, [finished, router]);
+
+  async function cancel() {
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      const response = await fetch(`/api/evaluations/${summary.id}/cancel`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        setCancelError(body.error ?? "Could not cancel this evaluation.");
+      }
+    } catch (error) {
+      setCancelError(
+        error instanceof Error ? error.message : "Could not cancel.",
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-10">
-      <EvaluationHeader evaluation={evaluation} />
+      <EvaluationHeader evaluation={summary} />
       <div className="mx-auto max-w-lg py-16">
         <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Live run
+          Live evaluation
         </p>
         <h2 className="mt-2 text-2xl font-semibold tracking-tight">
-          Evaluation in progress
+          {current.label}
         </h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {completed} of {total} runs complete. This is a simulated live
-          evaluation — results will appear on this page when it finishes.
+        <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+          {current.status === "running" ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : null}
+          {current.detail}
         </p>
+
         <div className="mt-8">
-          <Progress value={pct} className="gap-0" />
+          <Progress value={current.percent} className="gap-0">
+            <span className="sr-only">{current.percent}%</span>
+          </Progress>
           <p className="mt-3 font-mono text-[13px] tabular-nums text-muted-foreground">
-            {pct}% · {completed}/{total} runs
+            {current.percent}% · {current.completed}/{current.total} runs complete
           </p>
         </div>
-        <ol className="mt-8 space-y-3">
-          {PROGRESS_STEPS.map((label, index) => {
-            const done = index < currentStep;
-            const current = index === currentStep;
-            return (
-              <li key={label} className="flex items-center gap-3 text-sm">
-                {done ? (
-                  <Check className="size-3.5" />
-                ) : current ? (
-                  <LoaderCircle className="size-3.5 animate-spin" />
-                ) : (
-                  <span className="size-1.5 rounded-full bg-border" />
-                )}
-                <span
-                  className={cn(
-                    current ? "text-foreground" : "text-muted-foreground"
-                  )}
-                >
-                  {label}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
-        <p className="mt-10 text-sm text-muted-foreground">
-          While this runs, inspect a completed evaluation like{" "}
-          <Link href="/evaluations/analyze-bundle" className="underline underline-offset-4">
-            analyze-bundle
-          </Link>
-          .
+
+        <p className="mt-8 text-sm text-muted-foreground">
+          Each run is a real model call. Results appear on this page as soon as
+          scoring and aggregation finish.
         </p>
+
+        {streamError ? (
+          <div className="mt-6 flex items-start gap-2 rounded-md border border-border bg-[#fafafa] px-4 py-3 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <span>{streamError}</span>
+          </div>
+        ) : null}
+
+        {cancelError ? (
+          <p className="mt-6 text-sm text-muted-foreground">{cancelError}</p>
+        ) : null}
+
+        <div className="mt-8 flex items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.refresh()}
+            type="button"
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={cancel}
+            disabled={cancelling || current.status !== "running"}
+            type="button"
+          >
+            {cancelling ? "Cancelling…" : "Cancel evaluation"}
+          </Button>
+        </div>
       </div>
     </div>
   );

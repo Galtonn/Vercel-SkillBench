@@ -4,27 +4,46 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowUpDown, Search } from "lucide-react";
 
+import { RelativeTime } from "@/components/relative-time";
 import { StatusBadge } from "@/components/status-badge";
 import { MetricTip } from "@/components/metric-tip";
 import { Input } from "@/components/ui/input";
-import { EVALUATIONS } from "@/lib/mock-data";
+import { buttonVariants } from "@/components/ui/button";
 import { formatPct, formatPp } from "@/lib/format";
+import type { MetricTipName } from "@/lib/ui-copy";
 import { cn } from "@/lib/utils";
 import type { EvaluationSummary } from "@/lib/types";
 
-type SortKey = "skill" | "status" | "effectiveness" | "triggerRate" | "runs" | "updated";
+type SortKey =
+  | "skill"
+  | "status"
+  | "effectiveness"
+  | "triggerRate"
+  | "runs"
+  | "updated";
 
-export function EvaluationsList() {
+export function EvaluationsList({
+  evaluations,
+}: {
+  evaluations: EvaluationSummary[];
+}) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [asc, setAsc] = useState(false);
 
   const rows = useMemo(() => {
-    const filtered = EVALUATIONS.filter((row) =>
-      row.skillPath.toLowerCase().includes(query.toLowerCase())
+    const filtered = evaluations.filter((row) =>
+      `${row.skillPath} ${row.skillName}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
     );
 
-    const order = [...filtered].sort((a, b) => {
+    if (sortKey === "updated") {
+      // `evaluations` arrives newest-first from storage.
+      return asc ? [...filtered].reverse() : filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
       const dir = asc ? 1 : -1;
       switch (sortKey) {
         case "skill":
@@ -32,21 +51,16 @@ export function EvaluationsList() {
         case "status":
           return a.status.localeCompare(b.status) * dir;
         case "effectiveness":
-          return ((a.effectiveness ?? -1) - (b.effectiveness ?? -1)) * dir;
+          return ((a.effectiveness ?? -Infinity) - (b.effectiveness ?? -Infinity)) * dir;
         case "triggerRate":
-          return ((a.triggerRate ?? -1) - (b.triggerRate ?? -1)) * dir;
+          return ((a.triggerRate ?? -Infinity) - (b.triggerRate ?? -Infinity)) * dir;
         case "runs":
           return (a.runs - b.runs) * dir;
         default:
           return 0;
       }
     });
-
-    if (sortKey === "updated") {
-      return asc ? [...filtered].reverse() : filtered;
-    }
-    return order;
-  }, [query, sortKey, asc]);
+  }, [evaluations, query, sortKey, asc]);
 
   function toggle(key: SortKey) {
     if (sortKey === key) setAsc((value) => !value);
@@ -54,6 +68,22 @@ export function EvaluationsList() {
       setSortKey(key);
       setAsc(key === "skill");
     }
+  }
+
+  if (evaluations.length === 0) {
+    return (
+      <div className="rounded-lg border border-border px-6 py-16 text-center">
+        <h2 className="text-base font-medium">No evaluations yet</h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+          Every evaluation on this dashboard is a real run stored on disk. Start
+          with the built-in <span className="font-mono">analyze-bundle</span>{" "}
+          benchmark to produce one.
+        </p>
+        <Link href="/new" className={cn(buttonVariants(), "mt-6 inline-flex")}>
+          New Evaluation
+        </Link>
+      </div>
+    );
   }
 
   return (
@@ -69,7 +99,7 @@ export function EvaluationsList() {
           />
         </div>
         <p className="text-xs text-muted-foreground tabular-nums">
-          {rows.length} of {EVALUATIONS.length}
+          {rows.length} of {evaluations.length}
         </p>
       </div>
 
@@ -121,7 +151,7 @@ function SortHead({
   label: string;
   active: boolean;
   onClick: () => void;
-  tip?: keyof typeof import("@/lib/mock-data").METRIC_TIPS;
+  tip?: MetricTipName;
 }) {
   return (
     <th className="px-4 py-2.5 font-medium">
@@ -130,7 +160,7 @@ function SortHead({
         onClick={onClick}
         className={cn(
           "inline-flex items-center gap-1 hover:text-foreground",
-          active ? "text-foreground" : "text-muted-foreground"
+          active ? "text-foreground" : "text-muted-foreground",
         )}
       >
         {tip ? <MetricTip name={tip}>{label}</MetricTip> : label}
@@ -150,6 +180,11 @@ function EvalRow({ row }: { row: EvaluationSummary }) {
           <span className="font-mono text-[13px] group-hover:underline">
             {row.skillPath}
           </span>
+          {row.isRevision ? (
+            <span className="ml-2 rounded-full border border-border px-1.5 py-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
+              revision
+            </span>
+          ) : null}
         </Link>
       </td>
       <td className="px-4 py-3">
@@ -175,14 +210,14 @@ function EvalRow({ row }: { row: EvaluationSummary }) {
       </td>
       <td className="px-4 py-3 font-mono text-[13px] tabular-nums text-muted-foreground">
         <Link href={href} className="block">
-          {row.status === "running" && row.completedRuns
+          {row.status === "running"
             ? `${row.completedRuns}/${row.runs}`
-            : row.runs}
+            : row.completedRuns}
         </Link>
       </td>
       <td className="px-4 py-3 text-muted-foreground">
         <Link href={href} className="block">
-          {row.updatedLabel}
+          <RelativeTime iso={row.updatedAt} />
         </Link>
       </td>
     </tr>

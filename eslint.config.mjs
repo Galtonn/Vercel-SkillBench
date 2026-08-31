@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Benchmark fixture: deliberately broken input for the agent to analyse.
+    "fixtures/**",
+    // Stored evaluation results.
+    "data/**",
   ]),
 ]);
 

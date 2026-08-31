@@ -1,0 +1,14 @@
+{"route":"/","file":".next/static/chunks/framework-8f1c2a.js","size":159700,"compressed_size":48500,"client":true}
+{"route":"/","file":".next/server/app/page.js","size":171500,"compressed_size":51700,"client":false}
+{"route":"/dashboard","file":".next/static/chunks/framework-8f1c2a.js","size":159700,"compressed_size":48500,"client":true}
+{"route":"/dashboard","file":".next/static/chunks/ui-4b77e1.js","size":921500,"compressed_size":278200,"client":true}
+{"route":"/dashboard","file":".next/static/chunks/app/dashboard/page-2c9d10.js","size":21100,"compressed_size":6600,"client":true}
+{"route":"/dashboard","file":".next/server/app/dashboard/page.js","size":1309300,"compressed_size":393000,"client":false}
+{"route":"/analytics","file":".next/static/chunks/framework-8f1c2a.js","size":159700,"compressed_size":48500,"client":true}
+{"route":"/analytics","file":".next/static/chunks/vendor-luxon-71aa03.js","size":574200,"compressed_size":168400,"client":true}
+{"route":"/analytics","file":".next/static/chunks/app/analytics/page-9ab441.js","size":53700,"compressed_size":16600,"client":true}
+{"route":"/analytics","file":".next/server/app/analytics/page.js","size":1307500,"compressed_size":392400,"client":false}
+{"route":"/settings","file":".next/static/chunks/framework-8f1c2a.js","size":159700,"compressed_size":48500,"client":true}
+{"route":"/settings","file":".next/static/chunks/vendor-ui-kit-3d0f92.js","size":248900,"compressed_size":74200,"client":true}
+{"route":"/settings","file":".next/static/chunks/app/settings/page-55b208.js","size":8600,"compressed_size":2800,"client":true}
+{"route":"/settings","file":".next/server/app/settings/page.js","size":172900,"compressed_size":51500,"client":false}

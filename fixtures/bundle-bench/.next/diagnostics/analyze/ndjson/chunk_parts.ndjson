@@ -1,0 +1,15 @@
+{"route":"/dashboard","full_path":"node_modules/@acme/charts/dist/index.js","output_file":".next/static/chunks/ui-4b77e1.js","size":712400,"compressed_size":214800}
+{"route":"/dashboard","full_path":"node_modules/@acme/icons/dist/index.js","output_file":".next/static/chunks/ui-4b77e1.js","size":198600,"compressed_size":61300}
+{"route":"/dashboard","full_path":"components/ui/chart.tsx","output_file":".next/static/chunks/ui-4b77e1.js","size":7100,"compressed_size":2300}
+{"route":"/dashboard","full_path":"components/ui/index.ts","output_file":".next/static/chunks/ui-4b77e1.js","size":3200,"compressed_size":1100}
+{"route":"/dashboard","full_path":"components/ui/card.tsx","output_file":".next/static/chunks/ui-4b77e1.js","size":2600,"compressed_size":900}
+{"route":"/dashboard","full_path":"components/ui/icon.tsx","output_file":".next/static/chunks/ui-4b77e1.js","size":2400,"compressed_size":800}
+{"route":"/dashboard","full_path":"app/dashboard/revenue-panel.tsx","output_file":".next/static/chunks/app/dashboard/page-2c9d10.js","size":11400,"compressed_size":3600}
+{"route":"/dashboard","full_path":"node_modules/react-dom/client.js","output_file":".next/static/chunks/framework-8f1c2a.js","size":138900,"compressed_size":42100}
+{"route":"/dashboard","full_path":"node_modules/react/index.js","output_file":".next/static/chunks/framework-8f1c2a.js","size":20800,"compressed_size":6400}
+{"route":"/analytics","full_path":"node_modules/luxon/build/global/luxon.js","output_file":".next/static/chunks/vendor-luxon-71aa03.js","size":574200,"compressed_size":168400}
+{"route":"/analytics","full_path":"node_modules/@acme/sparkline/dist/index.js","output_file":".next/static/chunks/app/analytics/page-9ab441.js","size":41200,"compressed_size":12600}
+{"route":"/analytics","full_path":"app/analytics/range-picker.tsx","output_file":".next/static/chunks/app/analytics/page-9ab441.js","size":9800,"compressed_size":3100}
+{"route":"/analytics","full_path":"lib/format-date.ts","output_file":".next/static/chunks/app/analytics/page-9ab441.js","size":2700,"compressed_size":900}
+{"route":"/settings","full_path":"node_modules/@acme/ui-kit/dist/index.js","output_file":".next/static/chunks/vendor-ui-kit-3d0f92.js","size":248900,"compressed_size":74200}
+{"route":"/settings","full_path":"app/settings/preferences-form.tsx","output_file":".next/static/chunks/app/settings/page-55b208.js","size":8600,"compressed_size":2800}

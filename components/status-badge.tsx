@@ -5,6 +5,7 @@ const LABELS: Record<EvalStatus, string> = {
   completed: "Completed",
   running: "Running",
   failed: "Failed",
+  cancelled: "Cancelled",
 };
 
 export function StatusBadge({
@@ -26,7 +27,8 @@ export function StatusBadge({
           "size-1.5 rounded-full",
           status === "completed" && "bg-emerald-600",
           status === "running" && "animate-pulse-dot bg-foreground",
-          status === "failed" && "bg-red-600"
+          status === "failed" && "bg-red-600",
+          status === "cancelled" && "bg-neutral-400"
         )}
       />
       {LABELS[status]}

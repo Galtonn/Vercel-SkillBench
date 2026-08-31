@@ -1,0 +1,4 @@
+{"route":"/","total_size":331200,"total_compressed_size":100200,"client_compressed_size":48500,"server_compressed_size":51700,"client_js_files":3}
+{"route":"/dashboard","total_size":2411600,"total_compressed_size":726300,"client_compressed_size":333300,"server_compressed_size":393000,"client_js_files":6}
+{"route":"/analytics","total_size":2074500,"total_compressed_size":625900,"client_compressed_size":233500,"server_compressed_size":392400,"client_js_files":5}
+{"route":"/settings","total_size":585900,"total_compressed_size":177000,"client_compressed_size":125500,"server_compressed_size":51500,"client_js_files":4}
