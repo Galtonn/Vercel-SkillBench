@@ -159,6 +159,18 @@ describe("listEvaluations", () => {
     expect((await listEvaluations()).map((record) => record.id)).toEqual(["newer", "older"]);
   });
 
+  it("isolates records by recruiter session", async () => {
+    await saveEvaluation(makeRecord({ id: "mine", ownerId: "session-a" }));
+    await saveEvaluation(makeRecord({ id: "theirs", ownerId: "session-b" }));
+
+    expect((await listEvaluations("session-a")).map((record) => record.id)).toEqual([
+      "mine",
+    ]);
+    expect(await loadEvaluation("theirs", "session-a")).toBeNull();
+    expect(await deleteEvaluation("theirs", "session-a")).toBe(false);
+    expect(await loadEvaluation("theirs", "session-b")).not.toBeNull();
+  });
+
   it("skips a corrupt file rather than failing the whole dashboard", async () => {
     await saveEvaluation(makeRecord({ id: "good" }));
     await writeFile(path.join(dir, "corrupt.json"), "{ not json", "utf8");
@@ -180,7 +192,9 @@ describe("generateEvaluationId", () => {
   it("builds a filesystem-safe slug from the skill name", () => {
     const id = generateEvaluationId("Analyze Bundle!");
 
-    expect(id).toMatch(/^analyze-bundle-\d{12}-[a-z0-9]{4}$/);
+    expect(id).toMatch(
+      /^analyze-bundle-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(sanitizeId(id)).toBe(id);
   });
 

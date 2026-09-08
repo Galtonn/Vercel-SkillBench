@@ -1,7 +1,11 @@
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
-import { MAX_RUNS_PER_TASK, MAX_TASKS } from "@/lib/eval/config";
+import {
+  MAX_AGENT_RUNS_PER_EVALUATION,
+  MAX_RUNS_PER_TASK,
+  MAX_TASKS,
+} from "@/lib/eval/config";
 import { CONFIG_EXPLAINERS } from "@/lib/ui-copy";
 import { cn } from "@/lib/utils";
 
@@ -115,11 +119,19 @@ export default function DocsPage() {
           </li>
           <li>
             Limits: at most {MAX_TASKS} tasks and {MAX_RUNS_PER_TASK} runs per
-            configuration, with bounded concurrency.
+            configuration, with bounded concurrency. The hosted recruiter demo
+            additionally caps each evaluation at {MAX_AGENT_RUNS_PER_EVALUATION}{" "}
+            total agent executions.
           </li>
           <li>
-            Results are stored as JSON on disk. A completed evaluation stays
-            viewable without a working API key.
+            Hosted results are stored in Neon Postgres and isolated to the
+            visitor&apos;s signed guest session. Local development uses JSON files.
+          </li>
+          <li>
+            v0 runs use the Platform API v2 and create private v0 chats. Because
+            v0 exposes an agent API rather than native function calling,
+            SkillBench bridges tool requests through a strict JSON protocol and
+            records only explicit requests that it actually executes.
           </li>
         </ul>
       </section>
@@ -127,8 +139,8 @@ export default function DocsPage() {
       <section className="mt-12 space-y-4">
         <h2 className="text-lg font-medium">Get started</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Set <span className="font-mono">OPENAI_API_KEY</span>, then run a
-          built-in benchmark from the New Evaluation page, or load any{" "}
+          Enter the portfolio access code, then run a built-in benchmark from the
+          New Evaluation page or load any{" "}
           <span className="font-mono">SKILL.md</span>, point it at a fixture, and
           author or generate tasks with explicit relevance and scoring criteria.
         </p>

@@ -54,11 +54,15 @@ Requires Node 20+.
 npm install
 ```
 
-Set your API key. The only required variable is:
+Copy the environment template and set a long access code, an independent random
+session secret, and the API key for each provider you want to test:
 
 ```bash
 # .env.local
+DEMO_ACCESS_CODE=your-long-recruiter-code
+DEMO_SESSION_SECRET=generate-a-random-32-byte-secret
 OPENAI_API_KEY=sk-...
+V0_API_KEY=...                   # required only for v0
 ```
 
 Optional:
@@ -68,13 +72,55 @@ SKILLBENCH_MODEL=gpt-4o-mini      # default: gpt-4o-mini
 SKILLBENCH_DATA_DIR=./data/evaluations  # where results are written
 ```
 
-The key is read server-side only and is never sent to the browser.
+Keys are read server-side only and are never sent to the browser. v0 evaluations
+use the current v0 Platform API v2 at `https://v0.app/api/v2`. The picker exposes
+`v0-mini`, `v0-pro`, `v0-max`, and `v0-max-fast`. Each isolated model conversation
+creates a private v0 chat tagged with `source=skillbench` in the connected v0
+account.
+
+The v0 Platform API is an agent API, not a raw function-calling model endpoint.
+SkillBench therefore supplies its read-only tools through a strict JSON request
+protocol. A tool is counted only when v0 emits that exact request and SkillBench
+executes it; wording in the final answer is never treated as invocation. This
+keeps v0 evals executable and auditable, but their tool-trigger rates should not
+be treated as directly interchangeable with native OpenAI function calling.
 
 ```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+## Recruiter demo deployment
+
+The hosted build is a private, bounded portfolio demo rather than a public SaaS:
+
+- A shared access code creates a signed, secure seven-day guest session.
+- Every guest session sees and controls only its own evaluations.
+- Production requires Neon Postgres; local development can still use JSON files.
+- A single evaluation is capped at 12 agent executions, with 10 evaluations per
+  guest and 50 total evaluations in a rolling 24-hour period.
+- Hosted evaluation work runs after the `202 Accepted` response for up to five
+  minutes. Progress and cancellation state are persisted in Neon.
+- Local filesystem skill references are disabled in production. Recruiters can
+  paste a `SKILL.md` or use a public GitHub reference.
+- The site is marked `noindex` and sends restrictive browser security headers.
+
+To deploy:
+
+1. Import this repository into Vercel.
+2. Add Neon from **Vercel → Storage** and connect it to the project. This injects
+   `DATABASE_URL`; SkillBench creates its table and index on first use.
+3. Add `DEMO_ACCESS_CODE`, `DEMO_SESSION_SECRET`, `OPENAI_API_KEY`, and optionally
+   `V0_API_KEY` to the Production environment.
+4. Set provider-side spend limits and alerts, then redeploy.
+5. Visit `/access`, enter the code, and run the three-task **Live demo** preset.
+
+Use a high-entropy access code. If it is ever shared beyond the intended
+audience, rotate both demo secrets to invalidate existing sessions as well.
+
+The manual schema is included at `db/schema.sql` for inspection, although normal
+deployments do not need to run it separately.
 
 ## Running the built-in benchmark
 
@@ -97,7 +143,8 @@ Each analyze-bundle preset is a subset of the ten-task set rather than a rewrite
 
 Uncheck **Use built-in benchmark** to evaluate an arbitrary `SKILL.md`.
 
-1. Load the skill (GitHub reference, URL, local path, or pasted markdown).
+1. Load the skill (public GitHub reference, URL, or pasted markdown). Local paths
+   remain available only during local development.
 2. Point the evaluation at a fixture (`fixtures/bundle-bench` or `fixtures/ui-bench`) so the agent can read files.
 3. Either **Generate benchmark from skill** or author tasks in the structured editor.
 4. For every task, set whether the skill should help, the scoring method, and task-specific criteria or keywords. Optionally add a reference answer for the judge.
@@ -144,7 +191,10 @@ The **Improve Skill** flow uses the actual failures to propose a revised `SKILL.
 
 ## Storage
 
-Results are written to `data/evaluations/<id>.json`, one file per evaluation. A saved evaluation is plain data with no dependency on the model provider, so a completed run stays viewable and demoable even if the API is later unreachable. There is no fallback to synthetic results: if a live run fails, the error is shown.
+Production results are stored in Neon Postgres as isolated JSONB records. Local
+development and tests fall back to `data/evaluations/<id>.json` (or
+`SKILLBENCH_DATA_DIR`). A completed evaluation is plain stored data with no
+dependency on the model provider, and there is no fallback to synthetic results.
 
 ## Safety
 
@@ -160,8 +210,12 @@ Covers `SKILL.md` parsing, the deterministic scorer, the `use_skill` tool loop, 
 
 ## Limitations
 
-- One provider (OpenAI) and one skill per evaluation.
+- One agent and one skill per evaluation. OpenAI models use native function
+  calling; v0 uses the explicit adapter described above. Each evaluation still
+  runs one agent so its skill-delivery configurations remain directly comparable.
 - Tasks are analysis and diagnosis, not autonomous code editing. The agent reads the repository and describes changes; it does not apply them, so there is no build or test validation.
 - The `AGENTS.md` condition is a controlled delivery comparison, not a faithful reproduction of a specific agent harness.
 - Task counts are small by design (3 tasks by default, 10 in the full analyze-bundle benchmark, 1 run each), so a single task moves the percentages substantially. Raise runs per condition, or switch to a larger preset, for a tighter estimate at proportional cost.
+- The hosted demo intentionally caps an evaluation at 12 agent executions. Larger
+  presets remain useful locally, or can be run by selecting fewer conditions.
 - An AI-generated benchmark is a draft. The model that writes the tasks also writes the ground truth, so review relevance and criteria before treating the numbers as evidence.

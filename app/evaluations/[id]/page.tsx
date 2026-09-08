@@ -11,6 +11,7 @@ import {
 } from "@/lib/adapters/ui";
 import { loadEvaluation } from "@/lib/storage/evaluations";
 import { cn } from "@/lib/utils";
+import { requireDemoSession } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,11 @@ export default async function EvaluationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const session = await requireDemoSession();
 
   let record = null;
   try {
-    record = await loadEvaluation(id);
+    record = await loadEvaluation(id, session.id);
   } catch {
     record = null;
   }
@@ -60,9 +62,10 @@ export default async function EvaluationPage({
   // re-run so the before/after table can show measured numbers.
   let revisionComparison = null;
   if (record.improvement?.reevaluationId) {
-    const revised = await loadEvaluation(record.improvement.reevaluationId).catch(
-      () => null,
-    );
+    const revised = await loadEvaluation(
+      record.improvement.reevaluationId,
+      session.id,
+    ).catch(() => null);
     if (revised) revisionComparison = toRevisionComparison(record, revised);
   }
 

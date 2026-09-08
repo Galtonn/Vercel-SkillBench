@@ -20,6 +20,7 @@ export const metadata: Metadata = {
   title: "SkillBench — Evals for Agent Skills",
   description:
     "Measure whether your Agent Skills actually improve agent performance.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

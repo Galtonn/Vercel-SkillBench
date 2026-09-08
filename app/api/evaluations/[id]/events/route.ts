@@ -1,17 +1,18 @@
 import { toProgressView } from "@/lib/adapters/ui";
 import { loadEvaluation } from "@/lib/storage/evaluations";
+import { demoSessionFromRequest } from "@/lib/auth/demo-session";
 
 export const dynamic = "force-dynamic";
 
 const POLL_INTERVAL_MS = 400;
 /** Stop streaming after this long; the client reconnects if it still needs to. */
-const MAX_STREAM_MS = 15 * 60 * 1000;
+const MAX_STREAM_MS = 4 * 60 * 1000;
 
 /**
  * Server-sent events for a running evaluation.
  *
- * The runner persists progress to the evaluation's JSON file as work completes,
- * and this handler streams changes from that file. Reading persisted state rather
+ * The runner persists progress as work completes, and this handler streams
+ * changes from storage. Reading persisted state rather
  * than in-memory state means a page refresh, or a dev-server module reload,
  * recovers the true position instead of a stale guess.
  */
@@ -20,6 +21,8 @@ export async function GET(
   context: RouteContext<"/api/evaluations/[id]/events">,
 ) {
   const { id } = await context.params;
+  const session = await demoSessionFromRequest(request);
+  if (!session) return Response.json({ error: "Unauthorized." }, { status: 401 });
 
   const encoder = new TextEncoder();
 
@@ -57,7 +60,7 @@ export async function GET(
 
         let record;
         try {
-          record = await loadEvaluation(id);
+          record = await loadEvaluation(id, session.id);
         } catch (error) {
           // Named "failed" rather than "error": on EventSource, a listener for
           // "error" also fires for transport errors, which would conflate a real

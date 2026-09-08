@@ -1,7 +1,15 @@
 import { getBenchmark } from "./benchmarks";
-import { DEFAULT_RUNS_PER_CONFIG } from "./config";
+import {
+  DEFAULT_RUNS_PER_CONFIG,
+  getAgentOption,
+  MAX_EVALUATIONS_GLOBAL_PER_DAY,
+  MAX_EVALUATIONS_PER_SESSION_PER_DAY,
+  MAX_REPOSITORY_LABEL_CHARS,
+  MAX_SKILL_REFERENCE_CHARS,
+} from "./config";
 import { generateImprovedSkill } from "./improve";
-import { createOpenAIProvider, resolveModel } from "./openai-provider";
+import { resolveModel } from "./openai-provider";
+import { createProviderForRequest } from "./model-provider";
 import { resolveRevisedSkill, resolveSkill } from "./skill-parser";
 import { normalizeDrafts, parseTaskDrafts } from "./custom-tasks";
 import { parseTasksFromText } from "./tasks";
@@ -9,7 +17,6 @@ import { workspaceIdFromRepo } from "./fixtures";
 import {
   createEvaluationRecord,
   EvaluationValidationError,
-  startEvaluationInBackground,
   validateEvaluationInput,
 } from "./runner";
 import type {
@@ -19,6 +26,7 @@ import type {
   EvaluationRecord,
 } from "./types";
 import {
+  countEvaluationsSince,
   generateEvaluationId,
   loadEvaluation,
   saveEvaluation,
@@ -26,7 +34,7 @@ import {
 
 /**
  * Server-side entry points used by the route handlers. Everything that touches
- * the model provider or the filesystem lives behind this module, so no browser
+ * the model provider or persistence lives behind this module, so no browser
  * bundle can reach an API key.
  */
 
@@ -37,6 +45,7 @@ export type CreateEvaluationPayload = {
   tasks?: unknown;
   benchmarkId?: unknown;
   benchmarkSource?: unknown;
+  agent?: unknown;
   configs?: unknown;
   runsPerConfig?: unknown;
   workspaceId?: unknown;
@@ -67,9 +76,15 @@ function parseBenchmarkSource(value: unknown): BenchmarkSource | null {
   return null;
 }
 
-export async function createAndStartEvaluation(
+export async function createEvaluation(
   payload: CreateEvaluationPayload,
+  ownerId: string,
 ): Promise<EvaluationRecord> {
+  if (!ownerId) {
+    throw new EvaluationValidationError("A valid demo session is required.");
+  }
+  await assertEvaluationQuota(ownerId);
+
   const benchmark = getBenchmark(asString(payload.benchmarkId) || null);
 
   const skillReference =
@@ -77,8 +92,22 @@ export async function createAndStartEvaluation(
   if (!skillReference) {
     throw new EvaluationValidationError("Provide a skill to evaluate.");
   }
+  if (skillReference.length > MAX_SKILL_REFERENCE_CHARS) {
+    throw new EvaluationValidationError(
+      `Skill input may not exceed ${MAX_SKILL_REFERENCE_CHARS.toLocaleString()} characters.`,
+    );
+  }
 
   const configs = parseConfigs(payload.configs);
+  const requestedAgentId = asString(payload.agent).trim();
+  const selectedAgent = requestedAgentId
+    ? getAgentOption(requestedAgentId)
+    : undefined;
+  if (requestedAgentId && !selectedAgent) {
+    throw new EvaluationValidationError(
+      `Unknown agent profile: "${requestedAgentId}".`,
+    );
+  }
   const runsPerConfig =
     typeof payload.runsPerConfig === "number"
       ? payload.runsPerConfig
@@ -108,6 +137,11 @@ export async function createAndStartEvaluation(
 
   const repo =
     asString(payload.repo).trim() || benchmark?.repo || "no repository supplied";
+  if (repo.length > MAX_REPOSITORY_LABEL_CHARS) {
+    throw new EvaluationValidationError(
+      `Repository labels may not exceed ${MAX_REPOSITORY_LABEL_CHARS} characters.`,
+    );
+  }
 
   const workspaceId =
     benchmark?.workspaceId ??
@@ -118,6 +152,7 @@ export async function createAndStartEvaluation(
 
   const record = createEvaluationRecord({
     id: generateEvaluationId(skill.name),
+    ownerId,
     skill,
     tasks,
     question:
@@ -126,7 +161,9 @@ export async function createAndStartEvaluation(
     request: {
       skillReference,
       repo,
-      model: resolveModel(),
+      ...(selectedAgent ? { agentId: selectedAgent.id } : {}),
+      ...(selectedAgent ? { provider: selectedAgent.provider } : {}),
+      model: selectedAgent?.model ?? resolveModel(),
       selectedConfigs: configs,
       runsPerConfig,
       benchmarkId: benchmark?.id ?? null,
@@ -136,9 +173,29 @@ export async function createAndStartEvaluation(
   });
 
   await saveEvaluation(record);
-  startEvaluationInBackground(record.id);
 
   return record;
+}
+
+export async function assertEvaluationQuota(ownerId: string): Promise<void> {
+  if (process.env.NODE_ENV !== "production") return;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [sessionCount, globalCount] = await Promise.all([
+    countEvaluationsSince(since, ownerId),
+    countEvaluationsSince(since),
+  ]);
+  if (sessionCount >= MAX_EVALUATIONS_PER_SESSION_PER_DAY) {
+    throw new ServiceError(
+      `This demo session has reached its ${MAX_EVALUATIONS_PER_SESSION_PER_DAY}-evaluation daily limit.`,
+      429,
+    );
+  }
+  if (globalCount >= MAX_EVALUATIONS_GLOBAL_PER_DAY) {
+    throw new ServiceError(
+      "The recruiter demo has reached today's shared evaluation limit. Please try again later.",
+      429,
+    );
+  }
 }
 
 export class ServiceError extends Error {
@@ -151,8 +208,8 @@ export class ServiceError extends Error {
   }
 }
 
-export async function improveSkill(id: string): Promise<EvaluationRecord> {
-  const record = await loadEvaluation(id);
+export async function improveSkill(id: string, ownerId: string): Promise<EvaluationRecord> {
+  const record = await loadEvaluation(id, ownerId);
   if (!record) throw new ServiceError(`Evaluation "${id}" was not found.`, 404);
   if (!record.metrics) {
     throw new ServiceError(
@@ -162,8 +219,9 @@ export async function improveSkill(id: string): Promise<EvaluationRecord> {
   if (record.runs.length === 0) {
     throw new ServiceError("This evaluation has no runs to analyse.");
   }
+  if (record.improvement) return record;
 
-  const provider = createOpenAIProvider({ model: record.request.model });
+  const provider = createProviderForRequest(record.request);
 
   record.improvement = await generateImprovedSkill({
     provider,
@@ -180,8 +238,9 @@ export async function improveSkill(id: string): Promise<EvaluationRecord> {
  * Re-runs the same tasks, model, configurations, and repetitions against the
  * revised skill, as a separate evaluation linked back to the original.
  */
-export async function startReevaluation(id: string): Promise<EvaluationRecord> {
-  const original = await loadEvaluation(id);
+export async function createReevaluation(id: string, ownerId: string): Promise<EvaluationRecord> {
+  await assertEvaluationQuota(ownerId);
+  const original = await loadEvaluation(id, ownerId);
   if (!original) throw new ServiceError(`Evaluation "${id}" was not found.`, 404);
   if (!original.improvement) {
     throw new ServiceError(
@@ -190,7 +249,7 @@ export async function startReevaluation(id: string): Promise<EvaluationRecord> {
   }
 
   if (original.improvement.reevaluationId) {
-    const existing = await loadEvaluation(original.improvement.reevaluationId);
+    const existing = await loadEvaluation(original.improvement.reevaluationId, ownerId);
     if (existing) return existing;
   }
 
@@ -201,6 +260,7 @@ export async function startReevaluation(id: string): Promise<EvaluationRecord> {
 
   const record = createEvaluationRecord({
     id: generateEvaluationId(`${revisedSkill.name}-revised`),
+    ownerId,
     skill: revisedSkill,
     tasks: original.tasks,
     question: original.question,
@@ -216,6 +276,5 @@ export async function startReevaluation(id: string): Promise<EvaluationRecord> {
   original.improvement.reevaluationId = record.id;
   await saveEvaluation(original);
 
-  startEvaluationInBackground(record.id);
   return record;
 }

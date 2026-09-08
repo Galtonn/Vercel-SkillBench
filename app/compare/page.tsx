@@ -6,6 +6,7 @@ import { toDetail } from "@/lib/adapters/ui";
 import type { EvaluationRecord } from "@/lib/eval/types";
 import { listEvaluations } from "@/lib/storage/evaluations";
 import { cn } from "@/lib/utils";
+import { requireDemoSession } from "@/lib/auth/server";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,8 @@ export default async function ComparePage({
   searchParams: Promise<{ id?: string }>;
 }) {
   const { id } = await searchParams;
-  const records = await listEvaluations();
+  const session = await requireDemoSession();
+  const records = await listEvaluations(session.id);
   const comparable = comparableEvaluations(records);
 
   const requested = id ? records.find((entry) => entry.id === id) : undefined;

@@ -5,6 +5,8 @@ import { SkillResolutionError, resolveSkill } from "@/lib/eval/skill-parser";
 import { workspaceIdFromRepo } from "@/lib/eval/fixtures";
 import { ReadOnlyWorkspace } from "@/lib/eval/workspace";
 import { WORKSPACE_DIRECTORIES } from "@/lib/eval/benchmarks";
+import { demoSessionFromRequest } from "@/lib/auth/demo-session";
+import { readJsonBody, RequestBodyError } from "@/lib/http/json";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +15,17 @@ export const dynamic = "force-dynamic";
  * draft for the New Evaluation form — it is never started as an evaluation.
  */
 export async function POST(request: Request) {
+  const session = await demoSessionFromRequest(request, { mutation: true });
+  if (!session) return Response.json({ error: "Unauthorized." }, { status: 401 });
+
   let payload: unknown;
   try {
-    payload = await request.json();
-  } catch {
-    return Response.json({ error: "Request body must be JSON." }, { status: 400 });
+    payload = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
 
   const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};

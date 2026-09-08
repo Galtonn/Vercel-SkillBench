@@ -1,12 +1,22 @@
 import { runAgent } from "./agent";
 import { WORKSPACE_DIRECTORIES } from "./benchmarks";
 import { classifyRun } from "./classify";
-import { MAX_RUNS_PER_TASK, MAX_TASKS, RUN_CONCURRENCY } from "./config";
+import {
+  MAX_AGENT_RUNS_PER_EVALUATION,
+  MAX_CRITERIA_PER_TASK,
+  MAX_CRITERION_CHARS,
+  MAX_EXPECTED_VALUES_PER_TASK,
+  MAX_REFERENCE_ANSWER_CHARS,
+  MAX_RUNS_PER_TASK,
+  MAX_TASK_PROMPT_CHARS,
+  MAX_TASKS,
+  RUN_CONCURRENCY,
+} from "./config";
 import { generateFindings } from "./findings";
 import { judgeResponse } from "./judge";
 import { mapWithConcurrency } from "./limiter";
+import { createProviderForRequest } from "./model-provider";
 import { computeMetrics } from "./metrics";
-import { createOpenAIProvider, resolveModel } from "./openai-provider";
 import { ProviderError, type ModelProvider } from "./provider";
 import { scoreContains } from "./scorer";
 import {
@@ -24,7 +34,9 @@ import {
 import { ReadOnlyWorkspace } from "./workspace";
 import {
   deleteEvaluation,
+  isEvaluationCancellationRequested,
   loadEvaluation,
+  markEvaluationCancellationRequested,
   saveEvaluation,
 } from "../storage/evaluations";
 
@@ -44,15 +56,16 @@ const cancelRequested = new Set<string>();
 /** Ids whose files were deleted; persist must not recreate them. */
 const abandoned = new Set<string>();
 
-export function requestCancellation(id: string) {
-  if (!inFlight.has(id)) return false;
+export async function requestCancellation(id: string, ownerId: string) {
+  const accepted = await markEvaluationCancellationRequested(id, ownerId);
+  if (!accepted) return false;
   cancelRequested.add(id);
   return true;
 }
 
 /**
- * Stops an in-flight evaluation from writing back to disk after its file has
- * been deleted. Without this, a progress save would recreate the evaluation.
+ * Stops an in-flight local evaluation from writing back after it has been
+ * deleted. Without this, a progress save would recreate the evaluation.
  * The id stays in `abandoned` for the life of the process so a persist that
  * was already in flight cannot resurrect the file after execute returns.
  */
@@ -67,6 +80,7 @@ export function isRunning(id: string) {
 
 export type CreateEvaluationInput = {
   id: string;
+  ownerId: string;
   skill: ResolvedSkill;
   tasks: EvalTask[];
   request: EvaluationRequest;
@@ -115,6 +129,59 @@ export function validateEvaluationInput(input: {
       `Runs per configuration must be a whole number between 1 and ${MAX_RUNS_PER_TASK}.`,
     );
   }
+
+  const totalRuns =
+    input.tasks.length * input.selectedConfigs.length * input.runsPerConfig;
+  if (totalRuns > MAX_AGENT_RUNS_PER_EVALUATION) {
+    throw new EvaluationValidationError(
+      `This recruiter demo allows at most ${MAX_AGENT_RUNS_PER_EVALUATION} agent runs per evaluation (received ${totalRuns}). Reduce the tasks, configurations, or repetitions.`,
+    );
+  }
+
+  for (const task of input.tasks) {
+    if (!task.name.trim() || task.name.length > 200) {
+      throw new EvaluationValidationError(
+        "Each task needs a name no longer than 200 characters.",
+      );
+    }
+    if (!task.prompt.trim() || task.prompt.length > MAX_TASK_PROMPT_CHARS) {
+      throw new EvaluationValidationError(
+        `Each task prompt must be between 1 and ${MAX_TASK_PROMPT_CHARS.toLocaleString()} characters.`,
+      );
+    }
+    if (task.expected.type === "llm_judge") {
+      if (
+        task.expected.criteria.length === 0 ||
+        task.expected.criteria.length > MAX_CRITERIA_PER_TASK ||
+        task.expected.criteria.some(
+          (criterion) =>
+            !criterion.trim() || criterion.length > MAX_CRITERION_CHARS,
+        )
+      ) {
+        throw new EvaluationValidationError(
+          `Each judged task needs 1-${MAX_CRITERIA_PER_TASK} criteria, each no longer than ${MAX_CRITERION_CHARS.toLocaleString()} characters.`,
+        );
+      }
+      if (
+        (task.expected.referenceAnswer?.length ?? 0) >
+        MAX_REFERENCE_ANSWER_CHARS
+      ) {
+        throw new EvaluationValidationError(
+          `Reference answers may not exceed ${MAX_REFERENCE_ANSWER_CHARS.toLocaleString()} characters.`,
+        );
+      }
+    } else if (
+      task.expected.values.length === 0 ||
+      task.expected.values.length > MAX_EXPECTED_VALUES_PER_TASK ||
+      task.expected.values.some(
+        (value) => !value.trim() || value.length > MAX_CRITERION_CHARS,
+      )
+    ) {
+      throw new EvaluationValidationError(
+        `Contains scoring needs 1-${MAX_EXPECTED_VALUES_PER_TASK} expected values, each no longer than ${MAX_CRITERION_CHARS.toLocaleString()} characters.`,
+      );
+    }
+  }
 }
 
 function initialProgress(total: number): EvaluationProgress {
@@ -138,6 +205,7 @@ export function createEvaluationRecord(
 
   return {
     id: input.id,
+    ownerId: input.ownerId,
     schemaVersion: 1,
     createdAt: new Date().toISOString(),
     startedAt: null,
@@ -336,6 +404,13 @@ export async function executeEvaluation(
     }
   };
 
+  const cancellationRequested = async () => {
+    if (cancelRequested.has(id)) return true;
+    const requested = await isEvaluationCancellationRequested(id);
+    if (requested) cancelRequested.add(id);
+    return requested;
+  };
+
   const setPhase = async (
     phase: ProgressPhase,
     label: string,
@@ -351,7 +426,7 @@ export async function executeEvaluation(
 
     const provider =
       options.provider ??
-      createOpenAIProvider({ model: record.request.model || resolveModel() });
+      createProviderForRequest(record.request);
 
     record.request.model = provider.model;
 
@@ -371,7 +446,7 @@ export async function executeEvaluation(
     let completed = 0;
 
     for (const taskUnits of units) {
-      if (cancelRequested.has(id)) break;
+      if (await cancellationRequested()) break;
 
       const taskIndex = taskUnits[0].taskIndex;
       const label = `Task ${taskIndex + 1}/${record.tasks.length}`;
@@ -385,7 +460,7 @@ export async function executeEvaluation(
         taskUnits,
         RUN_CONCURRENCY,
         async (unit) => {
-          if (cancelRequested.has(id)) return null;
+          if (await cancellationRequested()) return null;
 
           await persist({
             phase: "running",
@@ -420,7 +495,7 @@ export async function executeEvaluation(
       void results;
     }
 
-    if (cancelRequested.has(id)) {
+    if (await cancellationRequested()) {
       record.status = "cancelled";
       record.completedAt = new Date().toISOString();
       record.metrics = computeMetrics({
@@ -454,7 +529,7 @@ export async function executeEvaluation(
         "No run produced a scored response, so no analysis was generated.";
     }
 
-    await setPhase("saving", "Saving evaluation", "Writing results to disk");
+    await setPhase("saving", "Saving evaluation", "Persisting results");
 
     record.status = "completed";
     record.completedAt = new Date().toISOString();

@@ -13,7 +13,11 @@ import {
   executeEvaluation,
   validateEvaluationInput,
 } from "@/lib/eval/runner";
-import { MAX_RUNS_PER_TASK, MAX_TASKS } from "@/lib/eval/config";
+import {
+  MAX_AGENT_RUNS_PER_EVALUATION,
+  MAX_RUNS_PER_TASK,
+  MAX_TASKS,
+} from "@/lib/eval/config";
 import type { ModelProvider, ModelRequest } from "@/lib/eval/provider";
 import type { EvalTask, EvaluationRequest } from "@/lib/eval/types";
 import {
@@ -144,6 +148,7 @@ async function runEvaluation(
 ) {
   const record = createEvaluationRecord({
     id: "test-eval",
+    ownerId: "test-owner",
     skill: makeSkill(),
     tasks,
     request: request(overrides),
@@ -204,12 +209,28 @@ describe("validateEvaluationInput", () => {
       }),
     ).toThrow(/Unknown configuration/);
   });
+
+  it("caps the total hosted-demo workload", () => {
+    const tasks = Array.from(
+      { length: MAX_AGENT_RUNS_PER_EVALUATION + 1 },
+      (_, index) => ({ ...TASKS[0], id: `work-${index}` }),
+    );
+
+    expect(() =>
+      validateEvaluationInput({
+        tasks,
+        selectedConfigs: ["skill"],
+        runsPerConfig: 1,
+      }),
+    ).toThrow(/agent runs per evaluation/);
+  });
 });
 
 describe("createEvaluationRecord", () => {
   it("sizes total work as tasks × configurations × repetitions", () => {
     const record = createEvaluationRecord({
       id: "x",
+      ownerId: "test-owner",
       skill: makeSkill(),
       tasks: TASKS,
       request: request({ selectedConfigs: ["baseline", "skill", "explicit"], runsPerConfig: 2 }),
@@ -460,6 +481,7 @@ describe("executeEvaluation", () => {
 
     const record = createEvaluationRecord({
       id: "abandoned-eval",
+      ownerId: "test-owner",
       skill: makeSkill(),
       tasks: [TASKS[1]],
       request: request({ selectedConfigs: ["baseline"], runsPerConfig: 1 }),

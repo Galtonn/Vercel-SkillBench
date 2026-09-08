@@ -26,7 +26,7 @@ import {
  * table, we skip the parameter for those prefixes and additionally recover if
  * any model rejects it at request time.
  */
-const NO_TEMPERATURE_PREFIXES = ["o1", "o3", "o4", "gpt-5"];
+const NO_TEMPERATURE_PREFIXES = ["o1", "o3", "o4", "gpt-5", "gpt-6"];
 
 function supportsTemperature(model: string) {
   return !NO_TEMPERATURE_PREFIXES.some((prefix) => model.startsWith(prefix));
@@ -82,18 +82,21 @@ function toOpenAITools(
   }));
 }
 
-function describeError(error: unknown): ProviderError {
+function describeError(
+  error: unknown,
+  context: { apiKeyEnv: string; providerLabel: string; model: string },
+): ProviderError {
   if (error instanceof ProviderError) return error;
 
   if (error instanceof AuthenticationError) {
     return new ProviderError(
-      "The model provider rejected the API key. Check OPENAI_API_KEY.",
+      `${context.providerLabel} rejected the API key. Check ${context.apiKeyEnv}.`,
       { status: error.status, cause: error },
     );
   }
   if (error instanceof NotFoundError) {
     return new ProviderError(
-      "The model provider does not recognise the requested model. Check SKILLBENCH_MODEL.",
+      `${context.providerLabel} does not recognise the requested model "${context.model}".`,
       { status: error.status, cause: error },
     );
   }
@@ -110,7 +113,7 @@ function describeError(error: unknown): ProviderError {
     error instanceof APIConnectionError
   ) {
     return new ProviderError(
-      `Transient model provider failure: ${error.message}`,
+      `Transient ${context.providerLabel} failure: ${error.message}`,
       { retryable: true, status: error.status ?? null, cause: error },
     );
   }
@@ -129,8 +132,13 @@ async function sleep(ms: number) {
 
 export type OpenAIProviderOptions = {
   apiKey?: string;
+  apiKeyEnv?: "OPENAI_API_KEY" | "V0_API_KEY";
   model?: string;
   baseURL?: string;
+  providerLabel?: string;
+  supportsJsonMode?: boolean;
+  supportsMaxCompletionTokens?: boolean;
+  supportsTemperature?: boolean;
   timeoutMs?: number;
 };
 
@@ -142,10 +150,12 @@ export type OpenAIProviderOptions = {
 export function createOpenAIProvider(
   options: OpenAIProviderOptions = {},
 ): ModelProvider {
-  const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY;
+  const apiKeyEnv = options.apiKeyEnv ?? "OPENAI_API_KEY";
+  const providerLabel = options.providerLabel ?? "OpenAI";
+  const apiKey = options.apiKey ?? process.env[apiKeyEnv];
   if (!apiKey) {
     throw new ProviderError(
-      "OPENAI_API_KEY is not set. Add it to .env.local before running an evaluation.",
+      `${apiKeyEnv} is not set. Add it to .env.local before running this evaluation.`,
     );
   }
 
@@ -160,7 +170,8 @@ export function createOpenAIProvider(
     timeout: options.timeoutMs ?? 120_000,
   });
 
-  let temperatureAllowed = supportsTemperature(model);
+  let temperatureAllowed =
+    options.supportsTemperature ?? supportsTemperature(model);
 
   async function callOnce(request: ModelRequest): Promise<ModelResponse> {
     const startedAt = Date.now();
@@ -171,10 +182,10 @@ export function createOpenAIProvider(
       ...(temperatureAllowed && request.temperature !== undefined
         ? { temperature: request.temperature }
         : {}),
-      ...(request.maxOutputTokens
+      ...(options.supportsMaxCompletionTokens !== false && request.maxOutputTokens
         ? { max_completion_tokens: request.maxOutputTokens }
         : {}),
-      ...(request.jsonMode
+      ...(options.supportsJsonMode !== false && request.jsonMode
         ? { response_format: { type: "json_object" as const } }
         : {}),
     });
@@ -213,7 +224,11 @@ export function createOpenAIProvider(
             temperatureAllowed = false;
             continue;
           }
-          const described = describeError(error);
+          const described = describeError(error, {
+            apiKeyEnv,
+            providerLabel,
+            model,
+          });
           lastError = described;
           if (!described.retryable || attempt === PROVIDER_MAX_RETRIES - 1) {
             throw described;

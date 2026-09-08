@@ -119,6 +119,7 @@ export function makeRecord(
 ): EvaluationRecord {
   return {
     id: "analyze-bundle-260101120000-abcd",
+    ownerId: "test-owner",
     schemaVersion: 1,
     createdAt: "2026-01-01T12:00:00.000Z",
     startedAt: "2026-01-01T12:00:01.000Z",

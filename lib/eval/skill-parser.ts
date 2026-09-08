@@ -5,6 +5,9 @@ import matter from "gray-matter";
 
 import type { ParsedSkill, ResolvedSkill, SkillSourceKind } from "./types";
 
+const MAX_SKILL_BYTES = 128 * 1024;
+const GITHUB_FETCH_TIMEOUT_MS = 8_000;
+
 export class SkillResolutionError extends Error {
   readonly attempts: string[];
 
@@ -22,6 +25,11 @@ export class SkillResolutionError extends Error {
 export function parseSkill(source: string): ParsedSkill {
   if (!source.trim()) {
     throw new SkillResolutionError("The SKILL.md file is empty.");
+  }
+  if (new TextEncoder().encode(source).byteLength > MAX_SKILL_BYTES) {
+    throw new SkillResolutionError(
+      `The SKILL.md exceeds the ${MAX_SKILL_BYTES / 1024} KB demo limit.`,
+    );
   }
 
   let parsed: matter.GrayMatterFile<string>;
@@ -100,12 +108,31 @@ function githubCandidatePaths(skillName: string) {
 const GITHUB_BRANCHES = ["HEAD", "main", "master"];
 
 async function fetchText(url: string): Promise<string | null> {
-  const response = await fetch(url, {
-    headers: { Accept: "text/plain" },
-    cache: "no-store",
-  });
-  if (!response.ok) return null;
-  return response.text();
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "text/plain" },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const declaredLength = Number(response.headers.get("content-length") ?? 0);
+    if (declaredLength > MAX_SKILL_BYTES) {
+      throw new SkillResolutionError(
+        `The remote SKILL.md exceeds the ${MAX_SKILL_BYTES / 1024} KB demo limit.`,
+      );
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_SKILL_BYTES) {
+      throw new SkillResolutionError(
+        `The remote SKILL.md exceeds the ${MAX_SKILL_BYTES / 1024} KB demo limit.`,
+      );
+    }
+    return new TextDecoder().decode(bytes);
+  } catch (error) {
+    if (error instanceof SkillResolutionError) throw error;
+    return null;
+  }
 }
 
 type GithubTarget = { owner: string; repo: string; filePath: string; ref: string };
@@ -160,7 +187,7 @@ async function resolveFromGithub(
 
   if (segments.length < 2) {
     throw new SkillResolutionError(
-      `"${reference}" is not a recognised skill reference. Use owner/repo/skill-name, a github.com URL, a local path to a SKILL.md, or paste the SKILL.md contents.`,
+      `"${reference}" is not a recognised skill reference. Use owner/repo/skill-name, a github.com URL, or paste the SKILL.md contents.`,
     );
   }
 
@@ -233,7 +260,15 @@ export async function resolveSkill(reference: string): Promise<ResolvedSkill> {
   if (looksLikeRawMarkdown(trimmed)) {
     sourceKind = "raw";
     loaded = { raw: trimmed, sourceLabel: "pasted SKILL.md" };
+  } else if (parseGithubUrl(trimmed)) {
+    sourceKind = "github";
+    loaded = await resolveFromGithub(trimmed);
   } else if (looksLikeLocalPath(trimmed)) {
+    if (process.env.NODE_ENV === "production") {
+      throw new SkillResolutionError(
+        "Local file paths are disabled in the hosted demo. Paste the SKILL.md or use a public GitHub reference.",
+      );
+    }
     sourceKind = "local";
     loaded = await resolveFromDisk(trimmed);
   } else {

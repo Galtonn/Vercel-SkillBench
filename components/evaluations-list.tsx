@@ -116,9 +116,9 @@ export function EvaluationsList({
       <div className="rounded-lg border border-border px-6 py-16 text-center">
         <h2 className="text-base font-medium">No evaluations yet</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-          Every evaluation on this dashboard is a real run stored on disk. Start
-          with the built-in <span className="font-mono">analyze-bundle</span>{" "}
-          benchmark to produce one.
+          This private workspace contains only evaluations created in your demo
+          session. Start with the built-in{" "}
+          <span className="font-mono">analyze-bundle</span> benchmark.
         </p>
         <Link href="/new" className={cn(buttonVariants(), "mt-6 inline-flex")}>
           New Evaluation

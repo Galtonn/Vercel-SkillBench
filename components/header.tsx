@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -13,6 +13,8 @@ const NAV = [
 
 export function Header() {
   const pathname = usePathname();
+
+  if (pathname === "/access") return null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
@@ -57,7 +59,7 @@ export function Header() {
             Docs
           </Link>
           <a
-            href="https://github.com/vercel-labs"
+            href="https://github.com/Galtonn/Vercel-SkillBench-Demo"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -65,6 +67,11 @@ export function Header() {
             <GithubMark className="size-3.5" />
             <span className="hidden sm:inline">GitHub</span>
           </a>
+          <form action="/api/auth/logout" method="post">
+            <Button type="submit" size="sm" variant="ghost">
+              Exit demo
+            </Button>
+          </form>
           <Link
             href="/new"
             className={cn(buttonVariants({ size: "sm" }), "ml-1")}

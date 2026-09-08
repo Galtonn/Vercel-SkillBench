@@ -31,10 +31,14 @@ import {
   getBenchmark,
 } from "@/lib/eval/benchmarks";
 import {
+  AGENT_OPTIONS,
+  DEFAULT_AGENT_ID,
   DEFAULT_RUNS_PER_CONFIG,
+  MAX_AGENT_RUNS_PER_EVALUATION,
   MAX_RUNS_PER_TASK,
   MAX_TASKS,
   estimateCost,
+  type AgentId,
 } from "@/lib/eval/config";
 import {
   draftsFromTasks,
@@ -68,9 +72,14 @@ type SkillPreview = {
   instructionsLength: number;
 };
 
-export function NewEvaluationForm() {
+export function NewEvaluationForm({
+  initialAgentId = DEFAULT_AGENT_ID,
+}: {
+  initialAgentId?: AgentId;
+}) {
   const router = useRouter();
 
+  const [agentId, setAgentId] = useState<AgentId>(initialAgentId);
   const [useBenchmark, setUseBenchmark] = useState(true);
   const [benchmarkId, setBenchmarkId] = useState(DEFAULT_BENCHMARK_ID);
   const [skill, setSkill] = useState(ANALYZE_BUNDLE_SKILL_REFERENCE);
@@ -140,6 +149,7 @@ export function NewEvaluationForm() {
     runsPerConfig: runs,
     judgedTasks: Math.min(judgedTasks, MAX_TASKS),
   });
+  const exceedsDemoBudget = cost.agentRuns > MAX_AGENT_RUNS_PER_EVALUATION;
 
   function toggle(id: ConfigId) {
     setConfigs((current) => ({ ...current, [id]: !current[id] }));
@@ -278,6 +288,7 @@ export function NewEvaluationForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          agent: agentId,
           skill,
           repo,
           tasks: useBenchmark ? [] : drafts,
@@ -319,6 +330,9 @@ export function NewEvaluationForm() {
           {progress?.detail ?? "Queued"}
         </p>
         <p className="mt-1 font-mono text-sm text-muted-foreground">{repo}</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {AGENT_OPTIONS.find((agent) => agent.id === agentId)?.label}
+        </p>
 
         <div className="mt-10">
           <Progress value={percent} className="gap-0">
@@ -390,9 +404,86 @@ export function NewEvaluationForm() {
           void submit();
         }}
       >
+        <fieldset>
+          <legend className="text-sm font-medium">AI agent</legend>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Choose the model that will perform every task in this evaluation.
+            Model access depends on your provider account.
+          </p>
+          {exceedsDemoBudget ? (
+            <p className="mt-2 text-xs font-medium text-destructive">
+              The hosted demo permits at most {MAX_AGENT_RUNS_PER_EVALUATION}{" "}
+              agent executions per evaluation. Reduce the tasks,
+              configurations, or repetitions.
+            </p>
+          ) : null}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {AGENT_OPTIONS.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                aria-pressed={agentId === agent.id}
+                onClick={() => setAgentId(agent.id)}
+                className={cn(
+                  "rounded-lg border px-3 py-3 text-left transition-colors",
+                  agentId === agent.id
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border hover:bg-muted/60",
+                )}
+              >
+                <span className="flex items-center justify-between gap-2 text-sm font-medium">
+                  {agent.label}
+                  {agent.group !== "current" ? (
+                    <span
+                      className={cn(
+                        "rounded-full border px-1.5 py-0.5 text-[9px] font-medium tracking-wide uppercase",
+                        agentId === agent.id
+                          ? "border-background/30 text-background/70"
+                          : "border-border text-muted-foreground",
+                      )}
+                    >
+                      {agent.group === "legacy" ? "Earlier" : "v0"}
+                    </span>
+                  ) : null}
+                </span>
+                <span
+                  className={cn(
+                    "mt-0.5 block font-mono text-[11px]",
+                    agentId === agent.id
+                      ? "text-background/70"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {agent.model}
+                </span>
+                <span
+                  className={cn(
+                    "mt-2 block text-xs",
+                    agentId === agent.id
+                      ? "text-background/80"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {agent.hint}
+                </span>
+                <span
+                  className={cn(
+                    "mt-1.5 block font-mono text-[10px]",
+                    agentId === agent.id
+                      ? "text-background/60"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {agent.credential}
+                </span>
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
         <Field
           label="Skill"
-          hint="GitHub reference (owner/repo/skill-name), a github.com URL, a local path to a SKILL.md, or paste the SKILL.md itself"
+          hint="Public GitHub reference (owner/repo/skill-name or URL), or paste the SKILL.md itself"
         >
           <Input
             value={skill}
@@ -653,6 +744,9 @@ export function NewEvaluationForm() {
           <p className="font-medium">Before you run</p>
           <ul className="mt-2 space-y-1 font-mono text-[13px] tabular-nums text-muted-foreground">
             <li>
+              Agent: {AGENT_OPTIONS.find((agent) => agent.id === agentId)?.label}
+            </li>
+            <li>
               {cost.tasks} tasks × {cost.configurations} configurations ×{" "}
               {cost.runsPerConfig} run{cost.runsPerConfig === 1 ? "" : "s"}
             </li>
@@ -683,7 +777,10 @@ export function NewEvaluationForm() {
           size="lg"
           className="w-full sm:w-auto"
           disabled={
-            submitting || selectedConfigs.length === 0 || cost.tasks === 0
+            submitting ||
+            selectedConfigs.length === 0 ||
+            cost.tasks === 0 ||
+            exceedsDemoBudget
           }
         >
           {submitting ? (

@@ -301,6 +301,10 @@ export type EvaluationProgress = {
 export type EvaluationRequest = {
   skillReference: string;
   repo: string;
+  /** UI agent profile used for this run. Older saved evaluations omit it. */
+  agentId?: string;
+  /** Model API used for the run. Older evaluations implicitly use OpenAI. */
+  provider?: "openai" | "v0";
   model: string;
   selectedConfigs: ConfigId[];
   runsPerConfig: number;
@@ -327,12 +331,15 @@ export function benchmarkSourceOf(request: EvaluationRequest): BenchmarkSource {
 
 export type EvaluationRecord = {
   id: string;
+  /** Signed guest-session id. Kept server-side for recruiter-demo isolation. */
+  ownerId?: string;
   schemaVersion: 1;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
   status: EvaluationStatus;
   error: string | null;
+  cancellationRequestedAt?: string | null;
   progress: EvaluationProgress;
   request: EvaluationRequest;
   skill: ResolvedSkill;
