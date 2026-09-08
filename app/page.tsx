@@ -17,16 +17,6 @@ export default async function HomePage() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-12">
-      <div className="animate-fade-up mb-8 rounded-xl border border-border bg-[#fafafa] px-5 py-4">
-        <p className="text-xs font-medium tracking-wide uppercase">
-          Interactive recruiter demo
-        </p>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Run real, isolated evaluations with the project owner&apos;s provider
-          credits. Please avoid confidential content; submitted skills and tasks
-          are processed by the selected AI provider.
-        </p>
-      </div>
       <div className="animate-fade-up mb-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="max-w-xl">
           <h1 className="text-3xl font-semibold tracking-tight">
