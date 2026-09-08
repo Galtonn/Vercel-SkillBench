@@ -59,7 +59,7 @@ export function Header() {
             Docs
           </Link>
           <a
-            href="https://github.com/Galtonn/Vercel-SkillBench-Demo"
+            href="https://github.com/Galtonn/Vercel-SkillBench"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
