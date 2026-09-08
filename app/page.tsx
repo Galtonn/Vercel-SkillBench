@@ -1,10 +1,9 @@
 import { EvaluationsList } from "@/components/evaluations-list";
 import { buttonVariants } from "@/components/ui/button";
 import { toSummary } from "@/lib/adapters/ui";
-import { AGENT_OPTIONS, DEFAULT_AGENT_ID } from "@/lib/eval/config";
 import { listEvaluations } from "@/lib/storage/evaluations";
-import { cn } from "@/lib/utils";
 import { requireDemoSession } from "@/lib/auth/server";
+import Link from "next/link";
 
 // Evaluations are read from storage on every request so a run that finishes in the
 // background shows up on refresh.
@@ -27,53 +26,12 @@ export default async function HomePage() {
             performance.
           </p>
         </div>
-        <form
-          action="/new"
-          className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:items-end"
+        <Link
+          href="/new"
+          className={buttonVariants({ size: "lg" })}
         >
-          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-            Test with
-            <select
-              name="agent"
-              defaultValue={DEFAULT_AGENT_ID}
-              className="h-10 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:min-w-44"
-            >
-              <optgroup label="Current agents">
-                {AGENT_OPTIONS.filter(
-                  (agent) => agent.group === "current",
-                ).map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Earlier models">
-                {AGENT_OPTIONS.filter(
-                  (agent) => agent.group === "legacy",
-                ).map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="v0 models">
-                {AGENT_OPTIONS.filter(
-                  (agent) => agent.group === "specialized",
-                ).map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.label}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
-          <button
-            type="submit"
-            className={cn(buttonVariants({ size: "lg" }))}
-          >
-            New Evaluation
-          </button>
-        </form>
+          New Evaluation
+        </Link>
       </div>
       <div className="animate-fade-up delay-2">
         <EvaluationsList evaluations={evaluations} />
