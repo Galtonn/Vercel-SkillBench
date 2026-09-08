@@ -27,10 +27,7 @@ export default async function AccessPage({
         <div className="flex size-10 items-center justify-center rounded-lg bg-foreground text-background">
           <LockKeyhole className="size-5" aria-hidden="true" />
         </div>
-        <p className="mt-6 text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
-          Private portfolio demo
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+        <h1 className="mt-6 text-3xl font-semibold tracking-tight">
           Explore SkillBench
         </h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
