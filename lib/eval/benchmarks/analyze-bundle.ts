@@ -47,15 +47,17 @@ export const ANALYZE_BUNDLE_TASKS: EvalTask[] = [
     name: "Find the largest client dependency",
     skillRelevant: true,
     prompt:
-      "Which single third-party dependency contributes the most JavaScript to the browser in this application? Name the package, give its client-side transfer size, and show the evidence you used.",
+      "Find the single third-party dependency that contributes the most client-side JavaScript. Start with `.next/diagnostics/analyze/ndjson/sources.ndjson` and compare the client JavaScript records for `/dashboard`, `/analytics`, and `/settings`; do not rank dependencies from `package.json`. Report the package, the route where it appears, its compressed transfer size, and the analyzer evidence that distinguishes it from larger server-only dependencies.",
     expected: {
       type: "llm_judge",
       criteria: [
-        "Identifies @acme/charts as the largest client-side dependency.",
-        "States a client-side compressed size of approximately 214 KB (214800 bytes) for @acme/charts.",
-        "Does NOT claim @aws-sdk/client-s3, lodash, three, or recharts is the largest client-side dependency. @aws-sdk/client-s3 and lodash are larger overall but are server-only; three and recharts are unused dependencies that never enter any bundle.",
-        "Cites measured evidence (for example the analyzer artifacts under .next/diagnostics/analyze/ndjson, or per-route client source sizes) rather than reasoning from package.json or from general knowledge of package sizes.",
+        "Identifies @acme/charts on /dashboard as the largest third-party client-side dependency.",
+        "Reports its compressed client size as approximately 214.8 KB (214800 bytes).",
+        "Cites the measured /dashboard source record and correctly establishes that it is client-side (for example client:true, or client:true together with server:false/js:true).",
+        "Distinguishes the answer from larger-looking server-only dependencies such as @aws-sdk/client-s3 or lodash rather than ranking package.json entries.",
       ],
+      referenceAnswer:
+        "@acme/charts is the largest browser dependency. In sources.ndjson, its /dashboard record is marked client:true and js:true and has compressed_size 214800 (about 214.8 KB). @aws-sdk/client-s3 and lodash have large records too, but those records are server-only, so they do not answer the client-JavaScript question.",
     },
   },
   {
@@ -63,15 +65,17 @@ export const ANALYZE_BUNDLE_TASKS: EvalTask[] = [
     name: "Diagnose the /analytics regression",
     skillRelevant: true,
     prompt:
-      "Client-side JavaScript on /analytics grew by roughly 170 KB in release 2.4.0 and nobody knows why. Identify what accounts for the growth, explain how it ended up in the client graph, and propose a fix.",
+      "The `/analytics` route gained roughly 170 KB of client JavaScript in release 2.4.0. Use the `/analytics` records in `.next/diagnostics/analyze/ndjson/sources.ndjson`, then inspect `app/analytics/page.tsx`, `app/analytics/range-picker.tsx`, and `lib/format-date.ts`. Identify the dependency responsible, report its compressed size, trace how it enters the client graph, and recommend the smallest practical change that removes that cost from the browser.",
     expected: {
       type: "llm_judge",
       criteria: [
         "Identifies luxon as the cause of the growth, at approximately 168 KB (168400 bytes) compressed on /analytics.",
         "Traces the import chain into the client graph: app/analytics/page.tsx renders app/analytics/range-picker.tsx, which is a \"use client\" component that imports lib/format-date.ts, which imports luxon.",
-        "Does NOT attribute the growth to @acme/charts, @acme/sparkline, recharts, or @aws-sdk/client-s3.",
+        "Uses the client:true /analytics analyzer record as evidence rather than attributing the regression to an unrelated or server-only dependency.",
         "Proposes a plausible fix, such as formatting dates on the server, replacing luxon with Intl.DateTimeFormat, or removing luxon from the client component's import path.",
       ],
+      referenceAnswer:
+        "Luxon accounts for the regression: its /analytics source record is client-side and 168400 compressed bytes. AnalyticsPage renders the client RangePicker; RangePicker imports lib/format-date.ts, and that module imports luxon, which pulls it into the browser graph. The smallest fix is to keep date formatting out of that client import path—for example, use Intl.DateTimeFormat there or pre-format the labels on the server.",
     },
   },
   {
@@ -79,15 +83,17 @@ export const ANALYZE_BUNDLE_TASKS: EvalTask[] = [
     name: "Reduce client JS on /dashboard",
     skillRelevant: true,
     prompt:
-      "Reduce the amount of JavaScript /dashboard ships to the browser without changing what the page does. Explain which modules you would target, why, and what change you would make.",
+      "The `/dashboard` route has unusually high client JavaScript. Use its records in `.next/diagnostics/analyze/ndjson/routes.ndjson` and `sources.ndjson`, then inspect `app/dashboard/revenue-panel.tsx`, `components/ui/chart.tsx`, and `components/ui/icon.tsx`. Identify the vendor modules responsible for most of the payload and recommend the smallest source change that produces a meaningful reduction without removing the chart or toggle behavior. Support the recommendation with measured sizes and the relevant import path.",
     expected: {
       type: "llm_judge",
       criteria: [
-        "Targets @acme/charts (about 214 KB) and/or @acme/icons (about 61 KB) as the modules worth removing from the client bundle. Together they are roughly 276 KB of the route's 333 KB of client JavaScript.",
-        "Identifies the delivery mechanism: app/dashboard/revenue-panel.tsx imports from the components/ui barrel (components/ui/index.ts), which re-exports chart.tsx and icon.tsx, so importing anything from the barrel pulls @acme/charts and @acme/icons into the client graph.",
-        "Proposes a concrete fix such as deep-importing components/ui/card directly instead of the barrel, splitting the barrel, or lazy-loading the chart with next/dynamic.",
-        "Bases the recommendation on measured per-module sizes rather than guessing which packages are large.",
+        "Reports that /dashboard ships approximately 333.3 KB of client JavaScript and that @acme/charts (about 214.8 KB) plus @acme/icons (about 61.3 KB) dominate it.",
+        "Traces those packages through RevenuePanel's Chart and Icon imports to components/ui/chart.tsx and components/ui/icon.tsx.",
+        "Recommends a small behavior-preserving reduction, preferably replacing the whole @acme/icons registry import with a direct glyph import or a local swap icon; deferring the chart is also acceptable if the loading behavior is explained.",
+        "Supports the recommendation with the analyzer's measured client-side sizes rather than package reputation.",
       ],
+      referenceAnswer:
+        "The route ships about 333300 compressed bytes of client JS. @acme/charts contributes 214800 bytes and @acme/icons contributes 61300; RevenuePanel reaches them through Chart and Icon, whose modules import those packages. The smallest low-risk reduction is to replace the full icons registry with a direct swap glyph or tiny local SVG, preserving the toggle while avoiding most of the 61.3 KB icon package. The chart is the larger follow-up target and could be deferred if that loading tradeoff is acceptable.",
     },
   },
   {
@@ -131,15 +137,17 @@ export const ANALYZE_BUNDLE_TASKS: EvalTask[] = [
     name: "Settings page slower after a UI package",
     skillRelevant: true,
     prompt:
-      "Users say the /settings page has felt slower to load since release 2.3.0, when we adopted the shared design system. Investigate whether that is plausible and report what you find.",
+      "Users report that `/settings` became slower after the shared design system was adopted in release 2.3.0. Check the `/settings` records in `.next/diagnostics/analyze/ndjson/routes.ndjson` and `sources.ndjson`, then inspect `app/settings/page.tsx` and `app/settings/preferences-form.tsx`. Determine whether the bundle evidence supports the report: identify the relevant package, quantify its share of the route's client JavaScript, and explain how it enters the client graph.",
     expected: {
       type: "llm_judge",
       criteria: [
         "Identifies @acme/ui-kit as the package added for the design system and the main new contributor to client-side JavaScript on /settings, at approximately 74 KB (74200 bytes) compressed.",
         "Notes that @acme/ui-kit is roughly 59% of the route's approximately 125 KB of client JavaScript, making the complaint plausible.",
         "Identifies where it enters the client graph: app/settings/page.tsx and the \"use client\" component app/settings/preferences-form.tsx both import from @acme/ui-kit.",
-        "Uses measured bundle evidence rather than only reading the source or speculating.",
+        "Bases the conclusion on measured /settings route and source records rather than only the release comment or package name.",
       ],
+      referenceAnswer:
+        "The report is plausible. /settings ships 125500 compressed bytes of client JavaScript, and @acme/ui-kit accounts for 74200 bytes—about 59% of that total. The package is imported by app/settings/page.tsx and by the use-client preferences-form.tsx, which brings its Field and Toggle code into the client graph. The route and source analyzer records provide the measured evidence.",
     },
   },
   {
@@ -230,9 +238,9 @@ function selectTasks(label: string, ids: readonly string[]): EvalTask[] {
  *   benchmark's sharpest discriminator. The two biggest modules in the repo are
  *   server-only, so an agent reasoning from package reputation gets it wrong and
  *   an agent reading the analyzer artifacts gets it right.
- * - `settings-slower-after-package` is the discovery test. Its prompt is a user
- *   complaint with no bundle vocabulary, so the agent has to recognise unprompted
- *   that the skill applies.
+ * - `settings-slower-after-package` asks for a scoped regression diagnosis. It
+ *   names the relevant route, source files, and analyzer inputs without revealing
+ *   the responsible package or the measured result.
  * - `rename-component` is deliberately not skill-relevant, which keeps
  *   false-positive loading measurable. It is scored deterministically, so it
  *   costs no judge call and cannot fail on judge variance.
@@ -248,8 +256,9 @@ export const ANALYZE_BUNDLE_LIVE_TASK_IDS = [
  * `analytics-regression` requires tracing an import chain across a client
  * boundary, and `reduce-dashboard-client-js` requires acting on the evidence
  * rather than only reporting it.
- * `fix-implicit-any` is a second non-relevant control, so a false-positive rate
- * is not determined by a single task.
+ * All four relevant prompts identify the route, analyzer inputs, and small source
+ * surface to inspect. `fix-implicit-any` is a second non-relevant control, so a
+ * false-positive rate is not determined by a single task.
  */
 export const ANALYZE_BUNDLE_STANDARD_TASK_IDS = [
   "largest-client-dependency",

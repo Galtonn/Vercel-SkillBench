@@ -165,16 +165,20 @@ describe("benchmark presets", () => {
         expect(countRelevant(preset.tasks)).toBe(preset.size - preset.controls);
       });
 
-      it("includes the discovery test, whose prompt uses no bundle vocabulary", () => {
-        const subtle = preset.tasks.find(
+      it("scopes the settings regression without revealing its answer", () => {
+        const settings = preset.tasks.find(
           (task) => task.id === "settings-slower-after-package",
         );
 
-        expect(subtle).toBeDefined();
-        expect(subtle!.skillRelevant).toBe(true);
-        for (const term of ["bundle", "javascript", "kb", "chunk"]) {
-          expect(subtle!.prompt.toLowerCase()).not.toContain(term);
-        }
+        expect(settings).toBeDefined();
+        expect(settings!.skillRelevant).toBe(true);
+        expect(settings!.prompt).toContain("/settings");
+        expect(settings!.prompt).toContain("routes.ndjson");
+        expect(settings!.prompt).toContain("sources.ndjson");
+        expect(settings!.prompt).toContain("app/settings/page.tsx");
+        expect(settings!.prompt).toContain("app/settings/preferences-form.tsx");
+        expect(settings!.prompt).not.toContain("@acme/ui-kit");
+        expect(settings!.prompt).not.toContain("74200");
       });
 
       it("includes the sharpest discriminator, which reputation-ranking gets wrong", () => {
@@ -192,6 +196,40 @@ describe("benchmark presets", () => {
   it("nests live inside standard inside full, so results stay comparable", () => {
     for (const task of ANALYZE_BUNDLE_LIVE_TASKS) {
       expect(ANALYZE_BUNDLE_STANDARD_TASKS).toContain(task);
+    }
+  });
+
+  it("gives every standard bundle task scoped evidence and deterministic ground truth", () => {
+    const relevant = ANALYZE_BUNDLE_STANDARD_TASKS.filter(
+      (task) => task.skillRelevant,
+    );
+
+    expect(relevant).toHaveLength(4);
+    for (const task of relevant) {
+      expect(task.prompt).toContain(".next/diagnostics/analyze/ndjson/");
+      expect(task.expected.type).toBe("llm_judge");
+      if (task.expected.type !== "llm_judge") continue;
+      expect(task.expected.criteria.length).toBeGreaterThanOrEqual(2);
+      expect(task.expected.criteria.length).toBeLessThanOrEqual(4);
+      expect(task.expected.referenceAnswer?.trim().length).toBeGreaterThan(80);
+      expect(task.expected.referenceAnswer!.length).toBeLessThan(1_000);
+    }
+  });
+
+  it("does not reveal the key dependency or measured result in relevant prompts", () => {
+    const hiddenAnswers: Record<string, string[]> = {
+      "largest-client-dependency": ["@acme/charts", "214800"],
+      "analytics-regression": ["luxon", "168400"],
+      "reduce-dashboard-client-js": ["@acme/charts", "@acme/icons", "333300"],
+      "settings-slower-after-package": ["@acme/ui-kit", "74200"],
+    };
+
+    for (const task of ANALYZE_BUNDLE_STANDARD_TASKS.filter(
+      (entry) => entry.skillRelevant,
+    )) {
+      for (const answer of hiddenAnswers[task.id]) {
+        expect(task.prompt.toLowerCase()).not.toContain(answer.toLowerCase());
+      }
     }
   });
 
