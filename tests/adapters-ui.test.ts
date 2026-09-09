@@ -16,7 +16,15 @@ import { makeRecord, makeRun, makeRuns } from "./helpers/factories";
 /** A completed record whose metrics came through the real aggregation path. */
 function completedRecord(
   spec: Partial<
-    Record<ConfigId, Array<{ success: boolean; skillRelevant?: boolean; skillInvoked?: boolean }>>
+    Record<
+      ConfigId,
+      Array<{
+        success: boolean;
+        skillRelevant?: boolean;
+        skillInvoked?: boolean;
+        status?: EvalRun["status"];
+      }>
+    >
   >,
   overrides: Partial<EvaluationRecord> = {},
 ): EvaluationRecord {
@@ -55,6 +63,22 @@ describe("toUiStatus", () => {
     for (const [status, expected] of statuses) {
       expect(toUiStatus(makeRecord({ status }))).toBe(expected);
     }
+  });
+
+  it("repairs legacy completed records when every run errored", () => {
+    const record = completedRecord(
+      {
+        baseline: [{ success: false, status: "error" }],
+        skill: [{ success: false, status: "error" }],
+      },
+      { status: "completed", error: null },
+    );
+
+    expect(toUiStatus(record)).toBe("failed");
+    const detail = toDetail(record);
+    expect(detail.verdictBadge).toBe("No scored comparison");
+    expect(detail.completionSummary).toMatch(/^Evaluation failed/);
+    expect(detail.error).toMatch(/All 2 runs errored before scoring/);
   });
 });
 

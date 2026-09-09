@@ -431,6 +431,9 @@ describe("executeEvaluation", () => {
     const record = await runEvaluation(provider);
 
     // Every run errors, so nothing can be scored and no findings are generated.
+    expect(record.status).toBe("failed");
+    expect(record.error).toMatch(/All 4 runs errored before scoring/);
+    expect(record.progress.label).toBe("Evaluation failed");
     expect(record.runs.every((run) => run.status === "error")).toBe(true);
     expect(record.findings).toEqual([]);
     expect(record.findingsError).toMatch(/No run produced a scored response/);

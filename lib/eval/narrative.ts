@@ -121,6 +121,14 @@ export function buildVerdict(
         badge: "Not measured",
       };
     }
+    const baseline = metrics.configs.find((config) => config.id === "baseline");
+    if (baseline && (baseline.successRate === null || skill.successRate === null)) {
+      return {
+        verdict:
+          "Baseline and Skill were selected, but no scored comparison was produced.",
+        badge: "No scored comparison",
+      };
+    }
     return {
       verdict:
         "This run did not include a Baseline configuration, so there is nothing to measure skill effectiveness against.",
@@ -334,6 +342,7 @@ export function buildAnalysisIntro(metrics: EvaluationMetrics | null): string {
 /** "Evaluation completed in 4m 12s · 36 runs across 4 configurations" */
 export function buildCompletionSummary(
   metrics: EvaluationMetrics | null,
+  outcome: "completed" | "failed" = "completed",
 ): string | null {
   if (!metrics) return null;
   const duration =
@@ -342,9 +351,10 @@ export function buildCompletionSummary(
   const configs = `${metrics.configs.length} configuration${metrics.configs.length === 1 ? "" : "s"}`;
   const errored =
     metrics.erroredRuns > 0 ? ` · ${metrics.erroredRuns} errored` : "";
+  const prefix = outcome === "failed" ? "Evaluation failed" : "Evaluation completed";
   return duration
-    ? `Evaluation completed in ${duration} · ${runs} across ${configs}${errored}`
-    : `Evaluation completed · ${runs} across ${configs}${errored}`;
+    ? `${prefix} ${outcome === "failed" ? "after" : "in"} ${duration} · ${runs} across ${configs}${errored}`
+    : `${prefix} · ${runs} across ${configs}${errored}`;
 }
 
 export function formatDuration(ms: number): string {

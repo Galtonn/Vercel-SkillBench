@@ -514,20 +514,35 @@ export async function executeEvaluation(
       wallClockMs: Date.now() - startedAtMs,
     });
 
-    if (record.runs.some((run) => run.status === "completed")) {
-      await setPhase("analyzing", "Analysing results", "Generating findings");
-      const analysis = await generateFindings({
-        provider,
-        skill: record.skill,
-        metrics: record.metrics,
-        runs: record.runs,
-      });
-      record.findings = analysis.findings;
-      record.findingsError = analysis.error;
-    } else {
+    const scoredRuns = record.runs.filter((run) => run.status === "completed");
+    if (scoredRuns.length === 0) {
       record.findingsError =
         "No run produced a scored response, so no analysis was generated.";
+      const firstRunError = record.runs
+        .map((run) => run.error ?? run.judgeError)
+        .find((error): error is string => Boolean(error));
+      const count = record.runs.length;
+      record.error = `All ${count} run${count === 1 ? "" : "s"} errored before scoring.${firstRunError ? ` ${firstRunError}` : " Check the failed-run details."}`;
+      record.status = "failed";
+      record.completedAt = new Date().toISOString();
+      record.metrics = computeMetrics({
+        runs: record.runs,
+        selectedConfigs: record.request.selectedConfigs,
+        wallClockMs: Date.now() - startedAtMs,
+      });
+      await setPhase("error", "Evaluation failed", record.error);
+      return;
     }
+
+    await setPhase("analyzing", "Analysing results", "Generating findings");
+    const analysis = await generateFindings({
+      provider,
+      skill: record.skill,
+      metrics: record.metrics,
+      runs: record.runs,
+    });
+    record.findings = analysis.findings;
+    record.findingsError = analysis.error;
 
     await setPhase("saving", "Saving evaluation", "Persisting results");
 

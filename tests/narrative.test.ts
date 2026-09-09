@@ -28,7 +28,12 @@ function metricsFor(
   spec: Partial<
     Record<
       ConfigId,
-      Array<{ success: boolean; skillRelevant?: boolean; skillInvoked?: boolean }>
+      Array<{
+        success: boolean;
+        skillRelevant?: boolean;
+        skillInvoked?: boolean;
+        status?: EvalRun["status"];
+      }>
     >
   >,
 ): EvaluationMetrics {
@@ -183,6 +188,18 @@ describe("buildVerdict", () => {
     expect(verdict).toMatch(/nothing to measure skill effectiveness against/);
   });
 
+  it("distinguishes selected-but-errored configs from an omitted baseline", () => {
+    const { verdict, badge } = buildVerdict(
+      metricsFor({
+        baseline: [{ ...fail(), status: "error" }],
+        skill: [{ ...fail(), status: "error" }],
+      }),
+    );
+
+    expect(badge).toBe("No scored comparison");
+    expect(verdict).toMatch(/Baseline and Skill were selected/);
+  });
+
   it("says effectiveness was not measured when Skill did not run", () => {
     const { badge } = buildVerdict(metricsFor({ baseline: [pass()] }));
     expect(badge).toBe("Not measured");
@@ -320,6 +337,16 @@ describe("buildCompletionSummary", () => {
     const summary = buildCompletionSummary({ ...metrics, erroredRuns: 2 });
 
     expect(summary).toMatch(/· 2 errored$/);
+  });
+
+  it("labels an all-error evaluation as failed", () => {
+    const metrics = metricsFor({
+      baseline: [{ ...fail(), status: "error" }],
+    });
+
+    expect(buildCompletionSummary(metrics, "failed")).toBe(
+      "Evaluation failed after 4m 12s · 1 run across 1 configuration · 1 errored",
+    );
   });
 });
 

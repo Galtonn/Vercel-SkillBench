@@ -10,6 +10,10 @@ import type {
   ChatCompletionFunctionTool,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
+import type {
+  FunctionTool,
+  ResponseInput,
+} from "openai/resources/responses/responses";
 
 import { DEFAULT_MODEL, PROVIDER_MAX_RETRIES } from "./config";
 import {
@@ -30,6 +34,15 @@ const NO_TEMPERATURE_PREFIXES = ["o1", "o3", "o4", "gpt-5", "gpt-6"];
 
 function supportsTemperature(model: string) {
   return !NO_TEMPERATURE_PREFIXES.some((prefix) => model.startsWith(prefix));
+}
+
+/**
+ * The current frontier models only support reasoning-aware function calling on
+ * the Responses API. Older models stay on Chat Completions to avoid changing a
+ * working integration unnecessarily.
+ */
+export function usesResponsesApi(model: string) {
+  return model.startsWith("gpt-5.6") || model.startsWith("gpt-6");
 }
 
 function toOpenAIMessages(
@@ -80,6 +93,60 @@ function toOpenAITools(
       parameters: tool.parameters,
     },
   }));
+}
+
+function toResponsesTools(request: ModelRequest): FunctionTool[] | undefined {
+  if (!request.tools?.length) return undefined;
+  return request.tools.map((tool) => ({
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.parameters,
+    // SkillBench schemas intentionally allow flexible evaluator arguments.
+    strict: false,
+  }));
+}
+
+/** Converts provider-neutral history into Responses API input items. */
+export function toResponsesInput(
+  messages: ModelMessage[],
+  options: { omitAssistant?: boolean } = {},
+): ResponseInput {
+  return messages.flatMap((message): ResponseInput => {
+    switch (message.role) {
+      case "system":
+      case "user":
+        return [{ type: "message", role: message.role, content: message.content }];
+      case "tool":
+        return [
+          {
+            type: "function_call_output",
+            call_id: message.toolCallId,
+            output: message.content,
+          },
+        ];
+      case "assistant": {
+        if (options.omitAssistant) return [];
+        const input: ResponseInput = [];
+        if (message.content) {
+          input.push({
+            type: "message",
+            role: "assistant",
+            content: message.content,
+          });
+        }
+        for (const call of message.toolCalls ?? []) {
+          input.push({
+            type: "function_call",
+            call_id: call.id,
+            name: call.name,
+            arguments: call.argumentsJson,
+          });
+        }
+        return input;
+      }
+    }
+  });
 }
 
 function describeError(
@@ -140,6 +207,12 @@ export type OpenAIProviderOptions = {
   supportsMaxCompletionTokens?: boolean;
   supportsTemperature?: boolean;
   timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+};
+
+type ResponsesSession = {
+  responseId: string;
+  sentMessageCount: number;
 };
 
 /**
@@ -165,6 +238,7 @@ export function createOpenAIProvider(
   const client = new OpenAI({
     apiKey,
     ...(baseURL ? { baseURL } : {}),
+    ...(options.fetchImpl ? { fetch: options.fetchImpl } : {}),
     // Our own retry loop handles backoff so failures surface as ProviderError.
     maxRetries: 0,
     timeout: options.timeoutMs ?? 120_000,
@@ -172,8 +246,74 @@ export function createOpenAIProvider(
 
   let temperatureAllowed =
     options.supportsTemperature ?? supportsTemperature(model);
+  const responsesSessions = new WeakMap<ModelMessage[], ResponsesSession>();
 
-  async function callOnce(request: ModelRequest): Promise<ModelResponse> {
+  async function callResponses(request: ModelRequest): Promise<ModelResponse> {
+    const startedAt = Date.now();
+    const session = responsesSessions.get(request.messages);
+    const pendingMessages = session
+      ? request.messages.slice(session.sentMessageCount)
+      : request.messages;
+    // A prior Responses result already contains its assistant function calls.
+    // On continuation we only submit the corresponding outputs and new user input.
+    const input = toResponsesInput(pendingMessages, {
+      omitAssistant: Boolean(session),
+    });
+    const tools = toResponsesTools(request);
+    const response = await client.responses.create({
+      model,
+      input: input.length
+        ? input
+        : [{ role: "user", content: "Continue and give the final answer." }],
+      ...(session ? { previous_response_id: session.responseId } : {}),
+      ...(tools ? { tools } : {}),
+      ...(request.maxOutputTokens
+        ? { max_output_tokens: request.maxOutputTokens }
+        : {}),
+      ...(options.supportsJsonMode !== false && request.jsonMode
+        ? { text: { format: { type: "json_object" as const } } }
+        : {}),
+      reasoning: { effort: "low" },
+      store: true,
+    });
+
+    if (response.error) {
+      throw new ProviderError(`Model call failed: ${response.error.message}`);
+    }
+    if (response.status === "failed" || response.status === "cancelled") {
+      throw new ProviderError(`Model call ended with status ${response.status}.`);
+    }
+
+    responsesSessions.set(request.messages, {
+      responseId: response.id,
+      sentMessageCount: request.messages.length,
+    });
+
+    const toolCalls: ModelToolCall[] = response.output
+      .filter((item) => item.type === "function_call")
+      .map((call) => ({
+        id: call.call_id,
+        name: call.name,
+        argumentsJson: call.arguments,
+      }));
+
+    return {
+      text: response.output_text ?? "",
+      toolCalls,
+      inputTokens: response.usage?.input_tokens ?? null,
+      outputTokens: response.usage?.output_tokens ?? null,
+      latencyMs: Date.now() - startedAt,
+      model: response.model || model,
+      finishReason:
+        toolCalls.length > 0
+          ? "tool_calls"
+          : response.incomplete_details?.reason ?? response.status ?? null,
+    };
+  }
+
+  async function callChatCompletions(
+    request: ModelRequest,
+  ): Promise<ModelResponse> {
     const startedAt = Date.now();
     const completion = await client.chat.completions.create({
       model,
@@ -210,6 +350,10 @@ export function createOpenAIProvider(
       finishReason: choice?.finish_reason ?? null,
     };
   }
+
+  const callOnce = usesResponsesApi(model)
+    ? callResponses
+    : callChatCompletions;
 
   return {
     model,

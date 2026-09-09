@@ -42,6 +42,15 @@ export function toUiStatus(record: EvaluationRecord): EvalStatus {
     case "running":
       return "running";
     case "completed":
+      // Older records may have been saved as completed even though every run
+      // errored. Derive the honest status so those records repair themselves.
+      if (
+        record.metrics &&
+        record.metrics.totalRuns > 0 &&
+        record.metrics.erroredRuns === record.metrics.totalRuns
+      ) {
+        return "failed";
+      }
       return "completed";
     case "cancelled":
       return "cancelled";
@@ -198,6 +207,7 @@ function labelFor(configId: string) {
 
 export function toDetail(record: EvaluationRecord): EvaluationDetail {
   const metrics = record.metrics;
+  const status = toUiStatus(record);
   const sample = sampleContextOf(record);
   const { verdict, badge } = buildVerdict(metrics, sample);
 
@@ -218,8 +228,15 @@ export function toDetail(record: EvaluationRecord): EvaluationDetail {
     findingsError: record.findingsError,
     failedRuns,
     analysisIntro: buildAnalysisIntro(metrics),
-    completionSummary: buildCompletionSummary(metrics),
-    error: record.error,
+    completionSummary: buildCompletionSummary(
+      metrics,
+      status === "failed" ? "failed" : "completed",
+    ),
+    error:
+      record.error ??
+      (status === "failed" && metrics
+        ? `All ${metrics.totalRuns} runs errored before scoring. Check the failed-run details.`
+        : null),
     skill: {
       name: record.skill.name,
       description: record.skill.description,
