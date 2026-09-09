@@ -1,5 +1,5 @@
 import { GENERIC_JUDGE_CRITERIA } from "./custom-tasks";
-import type { EvalTask } from "./types";
+import type { ConfigId, EvalTask } from "./types";
 
 /**
  * Pre-flight check on a custom benchmark.
@@ -37,10 +37,46 @@ export type BenchmarkQuality = {
 
 /**
  * Below this, a success or trigger rate moves too much per task to compare
- * configurations. Four tasks across four configurations is 16 runs, which is
- * enough to see a pattern but not enough to trust a small difference.
+ * configurations. Five tasks is enough to see a directional pattern, while the
+ * result copy still labels limited task coverage as non-conclusive.
  */
-const MIN_INTERPRETABLE_TASKS = 4;
+const MIN_INTERPRETABLE_TASKS = 5;
+
+/** Hard requirements for an evaluation that will be presented as a comparison. */
+export function meaningfulEvaluationIssues(input: {
+  tasks: EvalTask[];
+  selectedConfigs: ConfigId[];
+  hasWorkspace: boolean;
+}): string[] {
+  const issues: string[] = [];
+  const { tasks, selectedConfigs } = input;
+
+  if (tasks.length < MIN_INTERPRETABLE_TASKS) {
+    issues.push(`Use at least ${MIN_INTERPRETABLE_TASKS} tasks.`);
+  }
+  if (!selectedConfigs.includes("baseline")) {
+    issues.push("Include Baseline so treatment results have a control.");
+  }
+  if (!selectedConfigs.some((config) => config !== "baseline")) {
+    issues.push("Include at least one skill-delivery configuration.");
+  }
+  if (tasks.some((task) => !hasExplicitGroundTruth(task))) {
+    issues.push("Give every task task-specific scoring criteria or expected values.");
+  }
+  if (selectedConfigs.includes("skill")) {
+    if (tasks.filter((task) => task.skillRelevant).length < 2) {
+      issues.push("Include at least two skill-relevant tasks to measure triggering.");
+    }
+    if (tasks.filter((task) => !task.skillRelevant).length < 2) {
+      issues.push("Include at least two non-relevant tasks to measure false positives.");
+    }
+  }
+  if (!input.hasWorkspace) {
+    issues.push("Mount a repository fixture so answers can be grounded in evidence.");
+  }
+
+  return issues;
+}
 
 export function hasExplicitGroundTruth(task: EvalTask): boolean {
   if (task.expected.type === "contains") {
@@ -131,7 +167,7 @@ export function validateBenchmark(
   } else if (nonRelevant.length === 1) {
     warnings.push({
       id: "one-non-relevant",
-      level: "info",
+      level: "warning",
       message:
         "Only one non-relevant task, so the false-positive rate can read only 0% or 100%. Add another to make it meaningful.",
     });
@@ -143,6 +179,13 @@ export function validateBenchmark(
       level: "warning",
       message:
         "No task is marked skill-relevant, so the trigger rate cannot be measured. Mark the tasks the skill is supposed to help with.",
+    });
+  } else if (relevant.length === 1) {
+    warnings.push({
+      id: "one-relevant",
+      level: "warning",
+      message:
+        "Only one task is skill-relevant, so trigger reliability is too sensitive to that single task. Add another relevant task.",
     });
   }
 

@@ -75,7 +75,9 @@ describe("ReadOnlyWorkspace — sandbox boundaries", () => {
   it("exposes no tool that could write or execute", () => {
     expect(WORKSPACE_TOOLS.map((tool) => tool.name).sort()).toEqual([
       "list_files",
+      "query_json_lines",
       "read_file",
+      "search_files",
     ]);
   });
 });
@@ -111,9 +113,22 @@ describe("ReadOnlyWorkspace — error reporting", () => {
 });
 
 describe("ReadOnlyWorkspace — tool dispatch", () => {
-  it("routes the two supported tools", async () => {
+  it("routes the supported evidence tools", async () => {
     expect((await workspace.call("read_file", { path: "package.json" })).ok).toBe(true);
     expect((await workspace.call("list_files", { path: "." })).ok).toBe(true);
+    expect(
+      (await workspace.call("search_files", { path: ".", query: "dependencies" })).ok,
+    ).toBe(true);
+    expect(
+      (
+        await workspace.call("query_json_lines", {
+          path: ".next/diagnostics/analyze/ndjson/routes.ndjson",
+          sortBy: "total_compressed_size",
+          descending: true,
+          limit: 1,
+        })
+      ).ok,
+    ).toBe(true);
   });
 
   it("rejects an unknown tool by name", async () => {

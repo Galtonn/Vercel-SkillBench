@@ -93,7 +93,6 @@ export const BENCHMARKS: Record<string, Benchmark> = {
 
 /** Benchmarks offered in the New Evaluation form, in display order. */
 export const BENCHMARK_OPTIONS: Benchmark[] = [
-  BENCHMARKS[ANALYZE_BUNDLE_LIVE_BENCHMARK_ID],
   BENCHMARKS[ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID],
   BENCHMARKS[ANALYZE_BUNDLE_FULL_BENCHMARK_ID],
   BENCHMARKS[WEB_DESIGN_BENCHMARK_ID],
@@ -125,7 +124,7 @@ export const BENCHMARK_FAMILIES: BenchmarkFamily[] = (() => {
   return families;
 })();
 
-export const DEFAULT_BENCHMARK_ID = ANALYZE_BUNDLE_LIVE_BENCHMARK_ID;
+export const DEFAULT_BENCHMARK_ID = ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID;
 
 export function getBenchmark(id: string | null | undefined): Benchmark | null {
   if (!id) return null;

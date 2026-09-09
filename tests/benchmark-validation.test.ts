@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractMentionedPaths,
   hasExplicitGroundTruth,
+  meaningfulEvaluationIssues,
   validateBenchmark,
 } from "@/lib/eval/benchmark-validation";
 import { GENERIC_JUDGE_CRITERIA } from "@/lib/eval/custom-tasks";
@@ -60,7 +61,13 @@ describe("validateBenchmark", () => {
       }),
       makeTask({
         id: "task-4",
+        skillRelevant: false,
         expected: { type: "llm_judge", criteria: ["Names a third defect."] },
+      }),
+      makeTask({
+        id: "task-5",
+        skillRelevant: false,
+        expected: { type: "contains", values: ["done"] },
       }),
     ]);
 
@@ -121,5 +128,46 @@ describe("extractMentionedPaths", () => {
       "app/settings/account-form.tsx",
       "layout.ts",
     ]);
+  });
+});
+
+describe("meaningfulEvaluationIssues", () => {
+  const tasks = [
+    makeTask({ id: "a" }),
+    makeTask({ id: "b" }),
+    makeTask({ id: "c" }),
+    makeTask({
+      id: "d",
+      skillRelevant: false,
+      expected: { type: "contains", values: ["expected"] },
+    }),
+    makeTask({
+      id: "e",
+      skillRelevant: false,
+      expected: { type: "contains", values: ["expected"] },
+    }),
+  ];
+
+  it("accepts a grounded controlled comparison", () => {
+    expect(
+      meaningfulEvaluationIssues({
+        tasks,
+        selectedConfigs: ["baseline", "skill"],
+        hasWorkspace: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects designs that cannot support a meaningful comparison", () => {
+    const issues = meaningfulEvaluationIssues({
+      tasks: tasks.slice(0, 2),
+      selectedConfigs: ["skill"],
+      hasWorkspace: false,
+    });
+
+    expect(issues.join(" ")).toMatch(/at least 5 tasks/);
+    expect(issues.join(" ")).toMatch(/Include Baseline/);
+    expect(issues.join(" ")).toMatch(/non-relevant tasks/);
+    expect(issues.join(" ")).toMatch(/repository fixture/);
   });
 });

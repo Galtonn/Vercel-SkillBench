@@ -21,6 +21,7 @@ export const SMALL_RELEVANT_SCORED_RUNS = 10;
 
 export type SampleContext = {
   taskCount: number;
+  relevantTaskCount: number;
   relevantScoredRuns: number;
   nonRelevantTaskCount: number;
 };
@@ -28,7 +29,8 @@ export type SampleContext = {
 export function isSmallSample(context: SampleContext): boolean {
   return (
     context.relevantScoredRuns < SMALL_RELEVANT_SCORED_RUNS ||
-    context.taskCount < 5
+    context.relevantTaskCount < 5 ||
+    context.taskCount < 8
   );
 }
 
@@ -37,6 +39,10 @@ export function buildSampleWarnings(context: SampleContext): string[] {
   if (context.relevantScoredRuns < SMALL_RELEVANT_SCORED_RUNS) {
     warnings.push(
       "Small sample size. Treat these results as directional rather than conclusive.",
+    );
+  } else if (context.relevantTaskCount < 5 || context.taskCount < 8) {
+    warnings.push(
+      "Limited task coverage. Treat these results as directional rather than conclusive.",
     );
   }
   if (context.nonRelevantTaskCount === 1) {
@@ -163,8 +169,8 @@ export function buildVerdict(
     };
   }
 
-  // No material difference overall. If the skill helps when it is actually
-  // loaded, a weak trigger is the more useful explanation than "no effect".
+  // No material difference overall. Invocation splits are observational: tasks
+  // that trigger can differ systematically from tasks that do not.
   const invoked = metrics.successWhenInvoked;
   const notInvoked = metrics.successWhenNotInvoked;
   if (
@@ -175,8 +181,8 @@ export function buildVerdict(
     !reliable
   ) {
     return {
-      verdict: `Overall success matched Baseline, but runs that loaded the skill succeeded ${formatPct(invoked)} of the time versus ${formatPct(notInvoked)} when it was not loaded. Discovery, not instruction quality, is the bottleneck.`,
-      badge: "Blocked by discovery",
+      verdict: `Overall success matched Baseline. Runs that loaded the skill succeeded ${formatPct(invoked)} of the time versus ${formatPct(notInvoked)} when it was not loaded, but that observational split does not prove loading caused the difference.`,
+      badge: "Invocation-associated gap",
     };
   }
 
@@ -256,7 +262,7 @@ export function buildTriggerNote(metrics: EvaluationMetrics | null): string | nu
     return `The skill was missed in ${runWord(trigger.missed)}, but those runs still passed.`;
   }
 
-  return `${runWord(missedFailures)} failed because the skill was never loaded.`;
+  return `${runWord(missedFailures)} both missed the skill and failed. That association does not prove the missed load caused the failure.`;
 }
 
 /** Secondary explanation under the trigger note. */
@@ -293,7 +299,7 @@ export function buildTriggerDetail(
     const recovered = Math.round((explicit.successRate - skill.successRate) * 10) / 10;
     if (recovered >= MATERIAL_PP) {
       parts.push(
-        `Forcing the skill recovered ${ppWord(recovered)}, which points at discovery rather than the instructions.`,
+        `Explicit Trigger scored ${ppWord(recovered)} above the Skill condition. This is consistent with a discovery problem, but does not prove one.`,
       );
     } else if (recovered <= -MATERIAL_PP) {
       parts.push(
@@ -362,7 +368,7 @@ export function describeFailureReason(input: {
   if (input.judgeError) return "Not scored";
   if (input.error) return "Run errored";
   if (input.configId === "skill" && input.skillRelevant && !input.skillInvoked) {
-    return "Skill not invoked";
+    return "Missed skill trigger";
   }
   if (input.configId === "skill" && !input.skillRelevant && input.skillInvoked) {
     return "Unnecessary skill load";

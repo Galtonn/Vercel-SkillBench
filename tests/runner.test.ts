@@ -14,7 +14,6 @@ import {
   validateEvaluationInput,
 } from "@/lib/eval/runner";
 import {
-  MAX_AGENT_RUNS_PER_EVALUATION,
   MAX_RUNS_PER_TASK,
   MAX_TASKS,
 } from "@/lib/eval/config";
@@ -212,14 +211,14 @@ describe("validateEvaluationInput", () => {
 
   it("caps the total hosted-demo workload", () => {
     const tasks = Array.from(
-      { length: MAX_AGENT_RUNS_PER_EVALUATION + 1 },
+      { length: 20 },
       (_, index) => ({ ...TASKS[0], id: `work-${index}` }),
     );
 
     expect(() =>
       validateEvaluationInput({
         tasks,
-        selectedConfigs: ["skill"],
+        selectedConfigs: ["baseline", "skill", "explicit"],
         runsPerConfig: 1,
       }),
     ).toThrow(/agent runs per evaluation/);

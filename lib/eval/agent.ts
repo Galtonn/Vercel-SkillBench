@@ -12,6 +12,7 @@ import {
   type ModelToolDefinition,
 } from "./provider";
 import type { ConfigId, EvalTask, ResolvedSkill, RunEvent, ToolCallRecord } from "./types";
+import { SAFE_FETCH_TOOL, SAFE_FETCH_TOOL_NAME, safeFetchUrl } from "./safe-fetch";
 import { ReadOnlyWorkspace, WORKSPACE_TOOLS } from "./workspace";
 
 export type AgentRunInput = {
@@ -72,7 +73,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
   let truncated = false;
 
   const buildTools = (): ModelToolDefinition[] | undefined => {
-    const tools: ModelToolDefinition[] = [];
+    const tools: ModelToolDefinition[] = [SAFE_FETCH_TOOL];
     if (input.workspace) tools.push(...WORKSPACE_TOOLS);
     if (skillToolAvailable) tools.push(buildUseSkillTool(input.skill));
     return tools.length > 0 ? tools : undefined;
@@ -142,6 +143,24 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
           role: "tool",
           toolCallId: call.id,
           content: buildSkillLoadResult(input.skill),
+        });
+        continue;
+      }
+
+      if (call.name === SAFE_FETCH_TOOL_NAME) {
+        const toolResult = await safeFetchUrl(
+          typeof args.url === "string" ? args.url : "",
+        );
+        toolCalls.push({
+          name: call.name,
+          detail: toolResult.detail.replace(`${call.name} `, ""),
+          ok: toolResult.ok,
+        });
+        record(toolResult.detail, !toolResult.ok);
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: toolResult.content,
         });
         continue;
       }

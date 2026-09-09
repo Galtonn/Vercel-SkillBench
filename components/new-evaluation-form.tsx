@@ -18,7 +18,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { useEvaluationProgress } from "@/hooks/use-evaluation-progress";
-import { validateBenchmark } from "@/lib/eval/benchmark-validation";
+import {
+  meaningfulEvaluationIssues,
+  validateBenchmark,
+} from "@/lib/eval/benchmark-validation";
 import {
   ANALYZE_BUNDLE_REPO,
   ANALYZE_BUNDLE_SKILL_REFERENCE,
@@ -70,6 +73,8 @@ type SkillPreview = {
   description: string;
   sourceLabel: string;
   instructionsLength: number;
+  compatibility?: { compatible: boolean; unsupported: string[] };
+  compatibilityMessage?: string;
 };
 
 export function NewEvaluationForm({
@@ -150,6 +155,12 @@ export function NewEvaluationForm({
     judgedTasks: Math.min(judgedTasks, MAX_TASKS),
   });
   const exceedsDemoBudget = cost.agentRuns > MAX_AGENT_RUNS_PER_EVALUATION;
+  const methodologyIssues = meaningfulEvaluationIssues({
+    tasks: activeTasks,
+    selectedConfigs,
+    hasWorkspace: Boolean(workspaceId),
+  });
+  const methodologyReady = methodologyIssues.length === 0;
 
   function toggle(id: ConfigId) {
     setConfigs((current) => ({ ...current, [id]: !current[id] }));
@@ -517,6 +528,11 @@ export function NewEvaluationForm({
                 {skillPreview.sourceLabel}
               </span>
               <span className="mt-1 block">{skillPreview.description}</span>
+              {skillPreview.compatibilityMessage ? (
+                <span className="mt-1 block font-medium">
+                  {skillPreview.compatibilityMessage}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </Field>
@@ -765,6 +781,18 @@ export function NewEvaluationForm({
 
         {useBenchmark ? <BenchmarkQualityCard quality={quality} /> : null}
 
+        {!methodologyReady ? (
+          <div className="flex items-start gap-2 rounded-md border border-border bg-[#fafafa] px-4 py-3 text-sm">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <span>
+              <span className="block font-medium">Not ready to run</span>
+              <span className="mt-1 block text-muted-foreground">
+                {methodologyIssues.join(" ")}
+              </span>
+            </span>
+          </div>
+        ) : null}
+
         {error ? (
           <div className="flex items-start gap-2 rounded-md border border-border px-4 py-3 text-sm">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -780,7 +808,8 @@ export function NewEvaluationForm({
             submitting ||
             selectedConfigs.length === 0 ||
             cost.tasks === 0 ||
-            exceedsDemoBudget
+            exceedsDemoBudget ||
+            !methodologyReady
           }
         >
           {submitting ? (

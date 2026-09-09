@@ -172,7 +172,7 @@ describe("toDetail", () => {
 
     expect(detail.verdictBadge).toBe("Useful in this small benchmark");
     expect(detail.comparisonNote).toMatch(/Skill improved success by 50 percentage points/);
-    expect(detail.triggerNote).toBe("2 runs failed because the skill was never loaded.");
+    expect(detail.triggerNote).toMatch(/2 runs both missed the skill and failed/);
     expect(detail.missedTriggerFailureCount).toBe(2);
   });
 
@@ -262,7 +262,7 @@ describe("toDetail", () => {
 
     const failed = toDetail(record).failedRuns[0];
 
-    expect(failed.reason).toBe("Skill not invoked");
+    expect(failed.reason).toBe("Missed skill trigger");
     expect(failed.classificationLabel).toBe("Missed trigger, failed");
     expect(failed.skillApplicable).toBe(true);
     expect(failed.tokenLabel).toBe("1,000 in / 200 out");

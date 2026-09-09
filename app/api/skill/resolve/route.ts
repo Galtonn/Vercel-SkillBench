@@ -1,6 +1,10 @@
 import { resolveSkill, SkillResolutionError } from "@/lib/eval/skill-parser";
 import { demoSessionFromRequest } from "@/lib/auth/demo-session";
 import { readJsonBody, RequestBodyError } from "@/lib/http/json";
+import {
+  assessSkillCompatibility,
+  skillCompatibilityMessage,
+} from "@/lib/eval/tool-compatibility";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +35,15 @@ export async function POST(request: Request) {
 
   try {
     const skill = await resolveSkill(reference);
+    const compatibility = assessSkillCompatibility(skill);
     return Response.json({
       name: skill.name,
       description: skill.description,
       sourceKind: skill.sourceKind,
       sourceLabel: skill.sourceLabel,
       instructionsLength: skill.instructions.length,
+      compatibility,
+      compatibilityMessage: skillCompatibilityMessage(compatibility),
     });
   } catch (error) {
     if (error instanceof SkillResolutionError) {

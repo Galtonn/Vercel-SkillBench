@@ -29,6 +29,12 @@ Write 2 to 4 findings that a skill author could act on. Rules:
   from an instruction problem (the agent loads it and still fails). A missed
   trigger is not evidence that the instruction body is wrong. A failure after
   loading is not evidence that the description is too broad.
+- A missed trigger and a failure in the same run are an association, not proof
+  that the missed trigger caused the failure. Check the same task in Baseline,
+  Explicit Trigger, and AGENTS.md before suggesting a cause.
+- Zero false positives is not evidence that invocation criteria are clear when
+  the skill was never loaded at all, or when there are fewer than two
+  non-relevant tasks.
 - Do not blame instruction length, character count, or "the skill is too long"
   unless a failing run's judge reason actually shows the loaded instructions were
   contradictory, incomplete, or wrong. Length alone is never a finding.
@@ -96,7 +102,8 @@ function sampleSizeBlock(runs: EvalRun[]) {
     runs.filter((run) => run.skillRelevant).map((run) => run.taskId),
   );
   const relevantScored = scored.filter((run) => run.skillRelevant).length;
-  const small = relevantScored < 10 || taskIds.size < 5;
+  const small =
+    relevantScored < 10 || relevantTaskIds.size < 5 || taskIds.size < 8;
 
   return `## Sample size
 
@@ -139,6 +146,18 @@ function buildDataBlock(input: {
     .map(([key, count]) => `- ${key}: ${count}`)
     .join("\n");
 
+  const taskMatrix = [...new Set(input.runs.map((run) => run.taskId))]
+    .map((taskId) => {
+      const taskRuns = input.runs.filter((run) => run.taskId === taskId);
+      const taskName = taskRuns[0]?.taskName ?? taskId;
+      const cells = taskRuns.map(
+        (run) =>
+          `${run.configId}:${run.status === "completed" ? (run.success ? "pass" : "fail") : "error"}${run.configId === "skill" ? `,loaded=${run.skillInvoked ? "yes" : "no"}` : ""}`,
+      );
+      return `- ${taskName}: ${cells.join(" | ")}`;
+    })
+    .join("\n");
+
   return `## Skill under test
 
 name: ${skill.name}
@@ -167,6 +186,13 @@ ${trigger}
 ## Run classifications
 
 ${classifications || "- none"}
+
+## Same-task outcome matrix
+
+Each cell is one run. Use this section for cross-configuration comparisons; do
+not infer causation from the invocation split alone.
+
+${taskMatrix || "- none"}
 
 ## Reasons the agent gave for loading the skill
 

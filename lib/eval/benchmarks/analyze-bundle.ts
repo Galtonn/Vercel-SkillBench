@@ -7,8 +7,8 @@ import type { EvalTask } from "../types";
  * genuinely helped by the skill, three are not — the non-relevant tasks are what
  * make false-positive skill loading measurable.
  *
- * The presets below select subsets of these ten: three tasks for a live demo
- * (the default) and five for a standard run. The full set stays available too.
+ * The presets below select subsets of these ten: three tasks for a legacy quick
+ * check and six for the default standard run. The full set stays available too.
  * Every preset is a subset, never a rewrite, so results stay comparable.
  *
  * The judge criteria encode the ground truth, which is recoverable from the
@@ -24,7 +24,7 @@ import type { EvalTask } from "../types";
 /** The default preset: three of the ten tasks, sized for a live demo. */
 export const ANALYZE_BUNDLE_LIVE_BENCHMARK_ID = "analyze-bundle";
 
-/** Five of the ten tasks. */
+/** Six of the ten tasks. */
 export const ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID = "analyze-bundle-standard";
 
 /** The complete ten-task set. */
@@ -244,10 +244,12 @@ export const ANALYZE_BUNDLE_LIVE_TASK_IDS = [
 ] as const;
 
 /**
- * Five tasks. The live set plus two that broaden what is measured:
+ * Six tasks. The live set plus three that broaden what is measured:
  * `analytics-regression` requires tracing an import chain across a client
  * boundary, and `reduce-dashboard-client-js` requires acting on the evidence
  * rather than only reporting it.
+ * `fix-implicit-any` is a second non-relevant control, so a false-positive rate
+ * is not determined by a single task.
  */
 export const ANALYZE_BUNDLE_STANDARD_TASK_IDS = [
   "largest-client-dependency",
@@ -255,6 +257,7 @@ export const ANALYZE_BUNDLE_STANDARD_TASK_IDS = [
   "reduce-dashboard-client-js",
   "settings-slower-after-package",
   "rename-component",
+  "fix-implicit-any",
 ] as const;
 
 export const ANALYZE_BUNDLE_LIVE_TASKS = selectTasks(

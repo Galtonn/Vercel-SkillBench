@@ -66,7 +66,17 @@ export function sampleContextOf(record: EvaluationRecord): SampleContext {
   const relevantScoredRuns = record.runs.filter(
     (run) => run.status === "completed" && run.skillRelevant,
   ).length;
-  return { taskCount, relevantScoredRuns, nonRelevantTaskCount };
+  const relevantTaskCount = fromTasks
+    ? record.tasks.filter((task) => task.skillRelevant).length
+    : new Set(
+        record.runs.filter((run) => run.skillRelevant).map((run) => run.taskId),
+      ).size;
+  return {
+    taskCount,
+    relevantTaskCount,
+    relevantScoredRuns,
+    nonRelevantTaskCount,
+  };
 }
 
 export function toSummary(record: EvaluationRecord): EvaluationSummary {

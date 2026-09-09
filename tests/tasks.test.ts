@@ -11,7 +11,6 @@ import {
   countRelevant,
 } from "@/lib/eval/benchmarks/analyze-bundle";
 import {
-  BENCHMARKS,
   BENCHMARK_FAMILIES,
   BENCHMARK_OPTIONS,
   DEFAULT_BENCHMARK_ID,
@@ -142,8 +141,8 @@ describe("analyze-bundle benchmark", () => {
 
 describe("benchmark presets", () => {
   const presets = [
-    { name: "live", tasks: ANALYZE_BUNDLE_LIVE_TASKS, size: 3 },
-    { name: "standard", tasks: ANALYZE_BUNDLE_STANDARD_TASKS, size: 5 },
+    { name: "live", tasks: ANALYZE_BUNDLE_LIVE_TASKS, size: 3, controls: 1 },
+    { name: "standard", tasks: ANALYZE_BUNDLE_STANDARD_TASKS, size: 6, controls: 2 },
   ];
 
   for (const preset of presets) {
@@ -159,9 +158,11 @@ describe("benchmark presets", () => {
         }
       });
 
-      it("keeps exactly one deliberately non-relevant task so false positives stay measurable", () => {
-        expect(preset.tasks.filter((t) => !t.skillRelevant)).toHaveLength(1);
-        expect(countRelevant(preset.tasks)).toBe(preset.size - 1);
+      it("keeps deliberately non-relevant controls so false positives stay measurable", () => {
+        expect(preset.tasks.filter((t) => !t.skillRelevant)).toHaveLength(
+          preset.controls,
+        );
+        expect(countRelevant(preset.tasks)).toBe(preset.size - preset.controls);
       });
 
       it("includes the discovery test, whose prompt uses no bundle vocabulary", () => {
@@ -201,18 +202,17 @@ describe("benchmark presets", () => {
 });
 
 describe("benchmark registry", () => {
-  it("defaults to the three-task live demo", () => {
-    expect(DEFAULT_BENCHMARK_ID).toBe(ANALYZE_BUNDLE_LIVE_BENCHMARK_ID);
-    expect(getBenchmark(DEFAULT_BENCHMARK_ID)!.tasks).toHaveLength(3);
+  it("defaults to the interpretable six-task benchmark", () => {
+    expect(DEFAULT_BENCHMARK_ID).toBe(ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID);
+    expect(getBenchmark(DEFAULT_BENCHMARK_ID)!.tasks).toHaveLength(6);
   });
 
-  it("offers three analyze-bundle sizes, from live demo to full benchmark", () => {
+  it("offers only meaningful analyze-bundle sizes", () => {
     const analyze = BENCHMARK_FAMILIES.find((family) => family.id === "analyze-bundle")!;
     expect(
       analyze.presets.map((option) => [option.shortLabel, option.tasks.length]),
     ).toEqual([
-      ["Live demo", 3],
-      ["Standard", 5],
+      ["Standard", 6],
       ["Full benchmark", 10],
     ]);
   });
@@ -224,7 +224,7 @@ describe("benchmark registry", () => {
     expect(full.tasks).toBe(ANALYZE_BUNDLE_TASKS);
   });
 
-  it("keeps the five-task set available under its own id", () => {
+  it("keeps the six-task set available under its own id", () => {
     const standard = getBenchmark(ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID)!;
 
     expect(standard.tasks).toBe(ANALYZE_BUNDLE_STANDARD_TASKS);
@@ -241,9 +241,10 @@ describe("benchmark registry", () => {
     }
   });
 
-  it("offers exactly the registered benchmarks in the picker", () => {
-    expect(BENCHMARK_OPTIONS.map((option) => option.id)).toEqual(
-      Object.keys(BENCHMARKS),
+  it("keeps the legacy live preset addressable but out of the picker", () => {
+    expect(getBenchmark(ANALYZE_BUNDLE_LIVE_BENCHMARK_ID)?.tasks).toHaveLength(3);
+    expect(BENCHMARK_OPTIONS.map((option) => option.id)).not.toContain(
+      ANALYZE_BUNDLE_LIVE_BENCHMARK_ID,
     );
   });
 
@@ -296,21 +297,21 @@ describe("estimateCost", () => {
     });
   }
 
-  it("keeps the default live demo cheap enough to run in front of someone", () => {
+  it("uses the standard benchmark for the default recruiter demo", () => {
     const preview = previewPreset(DEFAULT_BENCHMARK_ID);
 
-    expect(preview.agentRuns).toBe(12);
-    expect(preview.judgeCalls).toBe(8);
+    expect(preview.agentRuns).toBe(24);
+    expect(preview.judgeCalls).toBe(20);
     expect(preview.analysisCalls).toBe(1);
-    expect(preview.estimatedModelCalls).toBe(45);
+    expect(preview.estimatedModelCalls).toBe(93);
   });
 
   it("matches the documented standard shape", () => {
     const preview = previewPreset(ANALYZE_BUNDLE_STANDARD_BENCHMARK_ID);
 
-    expect(preview.agentRuns).toBe(20);
-    expect(preview.judgeCalls).toBe(16);
-    expect(preview.estimatedModelCalls).toBe(77);
+    expect(preview.agentRuns).toBe(24);
+    expect(preview.judgeCalls).toBe(20);
+    expect(preview.estimatedModelCalls).toBe(93);
   });
 
   it("matches the documented full benchmark shape", () => {

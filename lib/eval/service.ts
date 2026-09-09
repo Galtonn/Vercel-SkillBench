@@ -9,9 +9,14 @@ import { generateImprovedSkill } from "./improve";
 import { resolveModel } from "./openai-provider";
 import { createProviderForRequest } from "./model-provider";
 import { resolveRevisedSkill, resolveSkill } from "./skill-parser";
+import {
+  assessSkillCompatibility,
+  skillCompatibilityMessage,
+} from "./tool-compatibility";
 import { normalizeDrafts, parseTaskDrafts } from "./custom-tasks";
 import { parseTasksFromText } from "./tasks";
 import { workspaceIdFromRepo } from "./fixtures";
+import { meaningfulEvaluationIssues } from "./benchmark-validation";
 import {
   createEvaluationRecord,
   EvaluationValidationError,
@@ -127,10 +132,6 @@ export async function createEvaluation(
       claimed === "ai-generated" ? "ai-generated" : "user-authored";
   }
 
-  validateEvaluationInput({ tasks, selectedConfigs: configs, runsPerConfig });
-
-  const skill = await resolveSkill(skillReference);
-
   const repo =
     asString(payload.repo).trim() || benchmark?.repo || "no repository supplied";
   if (repo.length > MAX_REPOSITORY_LABEL_CHARS) {
@@ -145,6 +146,24 @@ export async function createEvaluation(
       ? payload.workspaceId
       : null) ??
     workspaceIdFromRepo(repo);
+
+  validateEvaluationInput({ tasks, selectedConfigs: configs, runsPerConfig });
+  const methodologyIssues = meaningfulEvaluationIssues({
+    tasks,
+    selectedConfigs: configs,
+    hasWorkspace: Boolean(workspaceId),
+  });
+  if (methodologyIssues.length > 0) {
+    throw new EvaluationValidationError(
+      `This evaluation would not produce a meaningful comparison: ${methodologyIssues.join(" ")}`,
+    );
+  }
+
+  const skill = await resolveSkill(skillReference);
+  const compatibility = assessSkillCompatibility(skill);
+  if (!compatibility.compatible) {
+    throw new EvaluationValidationError(skillCompatibilityMessage(compatibility));
+  }
 
   const record = createEvaluationRecord({
     id: generateEvaluationId(skill.name),
@@ -231,6 +250,10 @@ export async function createReevaluation(id: string, ownerId: string): Promise<E
     original.improvement.revisedSkillMarkdown,
     original.request.skillReference,
   );
+  const compatibility = assessSkillCompatibility(revisedSkill);
+  if (!compatibility.compatible) {
+    throw new ServiceError(skillCompatibilityMessage(compatibility));
+  }
 
   const record = createEvaluationRecord({
     id: generateEvaluationId(`${revisedSkill.name}-revised`),

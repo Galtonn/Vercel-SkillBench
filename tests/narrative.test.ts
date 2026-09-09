@@ -123,6 +123,7 @@ describe("buildVerdict", () => {
 
     const { verdict, badge } = buildVerdict(metrics, {
       taskCount: 12,
+      relevantTaskCount: 8,
       relevantScoredRuns: 40,
       nonRelevantTaskCount: 2,
     });
@@ -140,6 +141,7 @@ describe("buildVerdict", () => {
 
     const { verdict, badge } = buildVerdict(metrics, {
       taskCount: 3,
+      relevantTaskCount: 2,
       relevantScoredRuns: 6,
       nonRelevantTaskCount: 1,
     });
@@ -160,7 +162,7 @@ describe("buildVerdict", () => {
     expect(verdict).not.toMatch(/improve[ds]/);
   });
 
-  it("attributes a flat overall result to discovery when loading the skill clearly helps", () => {
+  it("reports the invocation association without claiming causation", () => {
     // Overall success ties baseline, but every success came from a loaded run.
     const metrics = metricsFor({
       baseline: [pass(), pass(), fail(), fail()],
@@ -169,8 +171,9 @@ describe("buildVerdict", () => {
 
     const { verdict, badge } = buildVerdict(metrics);
 
-    expect(badge).toBe("Blocked by discovery");
+    expect(badge).toBe("Invocation-associated gap");
     expect(verdict).toMatch(/100% of the time versus 0%/);
+    expect(verdict).toMatch(/does not prove/);
   });
 
   it("does not claim effectiveness when there was no baseline", () => {
@@ -227,17 +230,18 @@ describe("buildComparisonNote", () => {
 });
 
 describe("buildTriggerNote", () => {
-  it("leads with the failures caused by a missed trigger", () => {
+  it("reports missed-trigger failures without claiming causation", () => {
     const note = buildTriggerNote(
       metricsFor({ skill: [pass(true), fail(false), fail(false), fail(false)] }),
     );
 
-    expect(note).toBe("3 runs failed because the skill was never loaded.");
+    expect(note).toMatch(/3 runs both missed the skill and failed/);
+    expect(note).toMatch(/does not prove/);
   });
 
   it("uses the singular for a single run", () => {
     const note = buildTriggerNote(metricsFor({ skill: [pass(true), fail(false)] }));
-    expect(note).toBe("1 run failed because the skill was never loaded.");
+    expect(note).toMatch(/1 run both missed the skill and failed/);
   });
 
   it("does not imply harm when missed runs still passed", () => {
@@ -275,7 +279,7 @@ describe("buildTriggerDetail", () => {
     expect(detail).toMatch(/did not succeeded 0% of the time/);
   });
 
-  it("points at discovery when forcing the skill recovers success", () => {
+  it("treats an explicit-trigger gain as evidence consistent with discovery", () => {
     const detail = buildTriggerDetail(
       metricsFor({
         skill: [pass(true), fail(false), fail(false), fail(false)],
@@ -283,8 +287,8 @@ describe("buildTriggerDetail", () => {
       }),
     );
 
-    expect(detail).toMatch(/Forcing the skill recovered 75 percentage points/);
-    expect(detail).toMatch(/points at discovery rather than the instructions/);
+    expect(detail).toMatch(/Explicit Trigger scored 75 percentage points above/);
+    expect(detail).toMatch(/consistent with a discovery problem, but does not prove one/);
   });
 
   it("reports false positives against the number of irrelevant tasks", () => {
@@ -352,7 +356,7 @@ describe("describeFailureReason", () => {
   };
 
   it("distinguishes a missed trigger from a wrong answer", () => {
-    expect(describeFailureReason(base)).toBe("Skill not invoked");
+    expect(describeFailureReason(base)).toBe("Missed skill trigger");
     expect(describeFailureReason({ ...base, skillInvoked: true })).toBe("Incorrect answer");
   });
 
@@ -399,6 +403,7 @@ describe("buildSampleWarnings", () => {
   it("warns when relevant scored runs are below 10", () => {
     const warnings = buildSampleWarnings({
       taskCount: 4,
+      relevantTaskCount: 2,
       relevantScoredRuns: 8,
       nonRelevantTaskCount: 2,
     });
@@ -411,6 +416,7 @@ describe("buildSampleWarnings", () => {
   it("warns that a single non-relevant task makes the false-positive rate unstable", () => {
     const warnings = buildSampleWarnings({
       taskCount: 12,
+      relevantTaskCount: 8,
       relevantScoredRuns: 40,
       nonRelevantTaskCount: 1,
     });

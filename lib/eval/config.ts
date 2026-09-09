@@ -8,7 +8,7 @@
 export const MAX_TASKS = 20;
 export const MAX_RUNS_PER_TASK = 5;
 /** Recruiter demos stay short enough to finish inside one hosted invocation. */
-export const MAX_AGENT_RUNS_PER_EVALUATION = 12;
+export const MAX_AGENT_RUNS_PER_EVALUATION = 40;
 export const MAX_SKILL_REFERENCE_CHARS = 100_000;
 export const MAX_TASK_PROMPT_CHARS = 6_000;
 export const MAX_CRITERION_CHARS = 2_000;
