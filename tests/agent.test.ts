@@ -65,6 +65,22 @@ describe("runAgent — Skill condition", () => {
     );
   });
 
+  it("requires loading on a clear metadata match without forcing unrelated tasks", async () => {
+    const provider = scriptedProvider([{ text: "Answer." }]);
+
+    await run(provider, "skill");
+
+    const prompt = systemPromptOf(provider.requests[0]);
+    const useSkill = provider.requests[0].tools?.find(
+      (tool) => tool.name === USE_SKILL_TOOL_NAME,
+    );
+    expect(prompt).toContain("clearly falls within that scope");
+    expect(prompt).toContain("MUST call");
+    expect(prompt).toContain("Do not call it when the task is unrelated");
+    expect(useSkill?.description).toContain("before other repository tools");
+    expect(useSkill?.description).toContain("Do not call it for unrelated tasks");
+  });
+
   it("records invocation only when the model actually calls the tool", async () => {
     const provider = scriptedProvider([
       { toolCalls: [toolCall(USE_SKILL_TOOL_NAME, { reason: "This is a bundle regression." })] },

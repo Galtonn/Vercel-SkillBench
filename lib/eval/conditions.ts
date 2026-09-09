@@ -35,7 +35,7 @@ export const USE_SKILL_TOOL_NAME = "use_skill";
 export function buildUseSkillTool(skill: ResolvedSkill): ModelToolDefinition {
   return {
     name: USE_SKILL_TOOL_NAME,
-    description: `Load the full instructions for the "${skill.name}" skill. Call this only if you judge that those instructions would help you complete the current task. You may call it at most once.`,
+    description: `Load the full instructions for the "${skill.name}" skill. Call this before other repository tools whenever the current task clearly matches the skill's name or description, even if you think you could solve it unaided. Do not call it for unrelated tasks. You may call it at most once.`,
     parameters: {
       type: "object",
       properties: {
@@ -58,16 +58,18 @@ export function buildUseSkillTool(skill: ResolvedSkill): ModelToolDefinition {
  * measurement.
  */
 function skillAvailabilityBlock(skill: ResolvedSkill) {
-  return `## Available skills
+  return `## Skill selection rule
 
-This repository provides the following skill. You are not required to use it.
+This repository provides the following skill:
 
 - name: ${skill.name}
   description: ${skill.description}
 
-If you judge that this skill's full instructions would help you complete the
-current task, call the \`${USE_SKILL_TOOL_NAME}\` tool to load them before
-answering. If the task does not call for it, simply answer the task.`;
+Before using repository tools or answering, compare the task with the skill's
+name and description. If the task clearly falls within that scope, you MUST call
+the \`${USE_SKILL_TOOL_NAME}\` tool first to load its instructions. Applicability,
+not whether you think you can solve the task unaided, determines whether to load
+it. Do not call it when the task is unrelated to the skill.`;
 }
 
 /**
