@@ -111,6 +111,39 @@ describe("runAgent — Skill condition", () => {
     ).toHaveProperty("content", expect.stringContaining(skill.instructions));
   });
 
+  it("does not charge a standalone skill load against the working-turn budget", async () => {
+    const workspace = new ReadOnlyWorkspace("bundle-bench");
+    const provider = scriptedProvider([
+      { toolCalls: [toolCall(USE_SKILL_TOOL_NAME, { reason: "Relevant." })] },
+      { toolCalls: [toolCall("read_file", { path: "app/dashboard/page.tsx" })] },
+      {
+        toolCalls: [
+          toolCall("read_file", { path: "app/dashboard/revenue-panel.tsx" }, "call-3"),
+        ],
+      },
+      {
+        toolCalls: [
+          toolCall("read_file", { path: "components/ui/chart.tsx" }, "call-4"),
+        ],
+      },
+      { text: "Final answer after three evidence-gathering turns." },
+    ]);
+
+    const result = await runAgent({
+      provider,
+      configId: "skill",
+      task,
+      skill,
+      repoLabel: "bundle-bench",
+      workspace,
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.modelCalls).toBe(MAX_AGENT_ITERATIONS + 1);
+    expect(result.response).toContain("Final answer");
+    expect(result.toolCalls.filter((call) => call.name === "read_file")).toHaveLength(3);
+  });
+
   it("does not infer invocation from a response that merely mentions the skill", async () => {
     const provider = scriptedProvider([
       { text: `I will apply the ${skill.name} skill and analyze the bundle.` },

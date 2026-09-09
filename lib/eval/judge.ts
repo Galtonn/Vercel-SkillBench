@@ -26,6 +26,11 @@ substantive facts and reaches the same conclusions. Different wording, ordering,
 structure, or extra correct detail must not be penalised. A candidate that omits
 or contradicts a fact from the reference answer has not satisfied it.
 
+Treat mathematically equivalent values and units as the same fact (for example,
+125500 bytes, 125.5 KB, and approximately 125 KB). Never claim the candidate
+gave a wrong value when it matches a criterion or reference answer. Evaluate
+each numbered criterion independently before deciding the final verdict.
+
 Respond with a single JSON object and nothing else:
 {"success": boolean, "score": number between 0 and 1, "reason": "one or two sentences"}
 

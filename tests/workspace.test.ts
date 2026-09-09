@@ -27,6 +27,21 @@ describe("ReadOnlyWorkspace — reading", () => {
     expect(JSON.parse(result.content)).toHaveProperty("dependencies");
   });
 
+  it("batch-reads explicitly named files for import tracing", async () => {
+    const result = await workspace.readFiles([
+      "app/analytics/page.tsx",
+      "app/analytics/range-picker.tsx",
+      "lib/format-date.ts",
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(result.detail).toBe("read_files 3 files");
+    expect(result.content).toContain("## app/analytics/page.tsx");
+    expect(result.content).toContain("## app/analytics/range-picker.tsx");
+    expect(result.content).toContain("## lib/format-date.ts");
+    expect(result.content).toContain('from "luxon"');
+  });
+
   it("exposes the bundle analysis artifacts the benchmark depends on", async () => {
     const result = await workspace.listFiles(".next/diagnostics/analyze/ndjson");
 
@@ -77,6 +92,7 @@ describe("ReadOnlyWorkspace — sandbox boundaries", () => {
       "list_files",
       "query_json_lines",
       "read_file",
+      "read_files",
       "search_files",
     ]);
   });
@@ -115,6 +131,13 @@ describe("ReadOnlyWorkspace — error reporting", () => {
 describe("ReadOnlyWorkspace — tool dispatch", () => {
   it("routes the supported evidence tools", async () => {
     expect((await workspace.call("read_file", { path: "package.json" })).ok).toBe(true);
+    expect(
+      (
+        await workspace.call("read_files", {
+          paths: ["app/dashboard/page.tsx", "app/dashboard/revenue-panel.tsx"],
+        })
+      ).ok,
+    ).toBe(true);
     expect((await workspace.call("list_files", { path: "." })).ok).toBe(true);
     expect(
       (await workspace.call("search_files", { path: ".", query: "dependencies" })).ok,

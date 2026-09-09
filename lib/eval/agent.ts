@@ -71,6 +71,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
   let modelCalls = 0;
   let response = "";
   let truncated = false;
+  let skillLoadOnlyIterations = 0;
 
   const buildTools = (): ModelToolDefinition[] | undefined => {
     const tools: ModelToolDefinition[] = [SAFE_FETCH_TOOL];
@@ -79,7 +80,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
     return tools.length > 0 ? tools : undefined;
   };
 
-  for (let iteration = 0; iteration < MAX_AGENT_ITERATIONS; iteration += 1) {
+  // Loading a skill is context retrieval, not investigation. Give the Skill
+  // condition the same number of working turns as the other conditions when a
+  // model spends an otherwise-empty turn calling `use_skill`. The allowance is
+  // earned only after a successful, standalone load, so a model that skips the
+  // skill (or combines the load with repository work) gets no extra budget.
+  for (
+    let iteration = 0;
+    iteration < MAX_AGENT_ITERATIONS + skillLoadOnlyIterations;
+    iteration += 1
+  ) {
     const result = await input.provider.generate({
       messages,
       tools: buildTools(),
@@ -103,6 +113,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
       toolCalls: result.toolCalls,
     });
 
+    let loadedSkillThisIteration = false;
+
     for (const call of result.toolCalls) {
       const args = parseToolArguments(call);
 
@@ -123,6 +135,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
         }
 
         skillLoads += 1;
+        loadedSkillThisIteration = true;
         const reason = typeof args.reason === "string" ? args.reason.trim() : "";
         skillInvocationReason = reason || null;
         skillToolAvailable = false;
@@ -188,6 +201,13 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunOutput> {
         toolCallId: call.id,
         content: toolResult.content,
       });
+    }
+
+    if (
+      loadedSkillThisIteration &&
+      result.toolCalls.every((call) => call.name === USE_SKILL_TOOL_NAME)
+    ) {
+      skillLoadOnlyIterations += 1;
     }
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { assessSkillCompatibility } from "@/lib/eval/tool-compatibility";
+import { hostedSkillInstructions } from "@/lib/eval/conditions";
 import { makeSkill } from "./helpers/factories";
 
 describe("assessSkillCompatibility", () => {
@@ -41,5 +42,31 @@ jq -s '
 
     expect(result.compatible).toBe(false);
     expect(result.unsupported).toEqual(["Write", "shell:npm"]);
+  });
+});
+
+describe("hostedSkillInstructions", () => {
+  it("maps analyzer instructions to safe tools and preserves size semantics", () => {
+    const instructions = hostedSkillInstructions(
+      makeSkill({
+        instructions:
+          "Inspect routes.ndjson and sources.ndjson, then use module_edges.ndjson.",
+      }),
+    );
+
+    expect(instructions).toContain("query_json_lines");
+    expect(instructions).toMatch(/inspect the source files named in\s+the task/);
+    expect(instructions).toContain("routes.ndjson.client_compressed_size");
+    expect(instructions).toContain("client: true");
+    expect(instructions).toContain("module_edges.ndjson");
+  });
+
+  it("does not add analyzer-specific field guidance to unrelated skills", () => {
+    const instructions = hostedSkillInstructions(
+      makeSkill({ instructions: "Review accessible form labels." }),
+    );
+
+    expect(instructions).toContain("Hosted evaluator workflow");
+    expect(instructions).not.toContain("client_compressed_size");
   });
 });

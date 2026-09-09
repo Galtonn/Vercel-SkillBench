@@ -13,6 +13,8 @@ import type { ModelToolDefinition } from "./provider";
  */
 
 const MAX_FILE_BYTES = 96 * 1024;
+const MAX_BATCH_FILES = 8;
+const MAX_BATCH_BYTES = 96 * 1024;
 const MAX_ENTRIES = 400;
 const MAX_SEARCH_MATCHES = 100;
 const MAX_QUERY_ROWS = 100;
@@ -195,6 +197,45 @@ export class ReadOnlyWorkspace {
         content: `Error: ${requested} does not exist in this repository.`,
       };
     }
+  }
+
+  /** Reads a small, explicit set of files in one model turn. */
+  async readFiles(requested: string[]): Promise<WorkspaceToolResult> {
+    const paths = requested
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .slice(0, MAX_BATCH_FILES);
+    const detail = `read_files ${paths.length} file${paths.length === 1 ? "" : "s"}`;
+    if (paths.length === 0) {
+      return {
+        ok: false,
+        detail,
+        content: `Error: \`paths\` must contain 1-${MAX_BATCH_FILES} file paths.`,
+      };
+    }
+
+    const sections: string[] = [];
+    let totalBytes = 0;
+    let allOk = true;
+
+    for (const filePath of paths) {
+      const result = await this.readFile(filePath);
+      const section = `## ${filePath}\n\n${result.content}`;
+      const sectionBytes = Buffer.byteLength(section, "utf8");
+      if (totalBytes + sectionBytes > MAX_BATCH_BYTES) {
+        sections.push(
+          `[batch truncated before ${filePath} at ${MAX_BATCH_BYTES} bytes]`,
+        );
+        allOk = false;
+        break;
+      }
+      sections.push(section);
+      totalBytes += sectionBytes;
+      allOk &&= result.ok;
+    }
+
+    return { ok: allOk, detail, content: sections.join("\n\n") };
   }
 
   /** Literal, case-insensitive repository search used as a safe grep equivalent. */
@@ -444,6 +485,13 @@ export class ReadOnlyWorkspace {
     const requested = typeof args.path === "string" ? args.path : "";
     if (name === "list_files") return this.listFiles(requested);
     if (name === "read_file") return this.readFile(requested);
+    if (name === "read_files") {
+      return this.readFiles(
+        Array.isArray(args.paths)
+          ? args.paths.filter((entry): entry is string => typeof entry === "string")
+          : [],
+      );
+    }
     if (name === "search_files") {
       return this.searchFiles(
         requested,
@@ -504,6 +552,7 @@ export class ReadOnlyWorkspace {
 export const WORKSPACE_TOOL_NAMES = [
   "list_files",
   "read_file",
+  "read_files",
   "search_files",
   "query_json_lines",
 ] as const;
@@ -539,6 +588,25 @@ export const WORKSPACE_TOOLS: ModelToolDefinition[] = [
         },
       },
       required: ["path"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "read_files",
+    description:
+      "Read 1-8 explicitly named repository files in one call. Prefer this when a task names several source files that must be compared or traced together.",
+    parameters: {
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_BATCH_FILES,
+          items: { type: "string" },
+          description: "File paths relative to the repository root.",
+        },
+      },
+      required: ["paths"],
       additionalProperties: false,
     },
   },

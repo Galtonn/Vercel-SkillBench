@@ -145,6 +145,19 @@ describe("judgeResponse", () => {
     expect(text).toContain("chart-vendor is the largest.");
   });
 
+  it("instructs the judge to accept equivalent numeric units", async () => {
+    const provider = scriptedProvider([
+      { text: '{"success":true,"score":1,"reason":"Equivalent value."}' },
+    ]);
+
+    await judgeResponse({ provider, ...input });
+
+    const text = JSON.stringify(provider.requests[0].messages);
+    expect(text).toContain("125500 bytes");
+    expect(text).toContain("Never claim the candidate");
+    expect(text).toContain("each numbered criterion independently");
+  });
+
   it("never tells the judge which configuration produced the answer", async () => {
     const provider = scriptedProvider([
       { text: '{"success":true,"score":1,"reason":"Correct."}' },
