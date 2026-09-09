@@ -15,7 +15,7 @@ You are working in a read-only checkout. Available tools may include:
 - list_files: list files and directories, recursively.
 - read_file: read a file as text.
 - search_files: search files for literal text (safe grep equivalent).
-- query_json_lines: filter, sort, and project NDJSON (safe jq equivalent).
+- query_json_lines: filter, group, sort, and project NDJSON (safe jq equivalent).
 - fetch_url: fetch public text from the allowlisted raw GitHub host.
 
 You cannot run shell commands and you cannot edit files. When a task asks for a

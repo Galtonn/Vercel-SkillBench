@@ -131,6 +131,26 @@ describe("ReadOnlyWorkspace — tool dispatch", () => {
     ).toBe(true);
   });
 
+  it("supports the analyze-bundle skill's grouped maximum query", async () => {
+    const result = await workspace.call("query_json_lines", {
+      path: ".next/diagnostics/analyze/ndjson/sources.ndjson",
+      filters: [
+        { field: "client", equals: true },
+        { field: "js", equals: true },
+      ],
+      groupBy: "full_path",
+      maxBy: "compressed_size",
+      sortBy: "compressed_size",
+      descending: true,
+      fields: ["full_path", "compressed_size", "route"],
+      limit: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain("@acme/charts");
+    expect(result.content).toContain("214800");
+  });
+
   it("rejects an unknown tool by name", async () => {
     const result = await workspace.call("write_file", { path: "x", content: "y" });
 

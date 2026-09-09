@@ -24,6 +24,62 @@ export type SkillCompatibility = {
   unsupported: string[];
 };
 
+/** Returns command names while ignoring shell text embedded inside quotes. */
+function shellExecutables(source: string): string[] {
+  const segments: string[] = [];
+  let segment = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  const finish = () => {
+    if (segment.trim()) segments.push(segment);
+    segment = "";
+  };
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (escaped) {
+      escaped = false;
+      if (char !== "\n") segment += char;
+      continue;
+    }
+    if (char === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      segment += " ";
+      continue;
+    }
+    if (char === "#" && (!segment || /\s$/.test(segment))) {
+      while (index < source.length && source[index] !== "\n") index += 1;
+      finish();
+      continue;
+    }
+    if (char === "\n" || char === ";" || char === "|" || char === "&") {
+      finish();
+      if ((char === "|" || char === "&") && next === char) index += 1;
+      continue;
+    }
+    segment += char;
+  }
+  finish();
+
+  return segments.flatMap((entry) => {
+    const executable = entry
+      .trim()
+      .match(/^(?:[A-Z_][A-Z0-9_]*=\S+\s+)*([\w.-]+)/i)?.[1];
+    return executable ? [executable] : [];
+  });
+}
+
 /**
  * Reject skills whose documented workflow depends on capabilities this hosted,
  * read-only harness cannot provide. Merely claiming success without those tools
@@ -48,13 +104,8 @@ export function assessSkillCompatibility(
 
   const shellBlocks = [...skill.instructions.matchAll(/```(?:bash|sh|shell|zsh)\s*\n([\s\S]*?)```/gi)];
   for (const block of shellBlocks) {
-    for (const line of block[1].split("\n")) {
-      const normalized = line.trim().replace(/^\\\s*/, "");
-      if (!normalized || normalized.startsWith("#") || normalized.startsWith("|")) {
-        continue;
-      }
-      const executable = normalized.match(/^(?:[A-Z_][A-Z0-9_]*=\S+\s+)*([\w.-]+)/i)?.[1];
-      if (executable && !SAFE_SHELL_EQUIVALENTS.has(executable)) {
+    for (const executable of shellExecutables(block[1])) {
+      if (!SAFE_SHELL_EQUIVALENTS.has(executable)) {
         unsupported.push(`shell:${executable}`);
       }
     }

@@ -14,6 +14,23 @@ describe("assessSkillCompatibility", () => {
     expect(result).toEqual({ compatible: true, unsupported: [] });
   });
 
+  it("does not mistake multiline jq filters for shell executables", () => {
+    const result = assessSkillCompatibility(
+      makeSkill({
+        instructions: `\`\`\`bash
+jq -s '
+  group_by(.full_path)
+  | map(max_by(.compressed_size))
+  | sort_by(-.compressed_size)
+  | .[0:10]
+' sources.ndjson
+\`\`\``,
+      }),
+    );
+
+    expect(result).toEqual({ compatible: true, unsupported: [] });
+  });
+
   it("rejects skills that require execution or writes", () => {
     const result = assessSkillCompatibility(
       makeSkill({

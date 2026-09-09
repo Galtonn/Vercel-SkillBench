@@ -17,6 +17,20 @@ const MAX_ENTRIES = 400;
 const MAX_SEARCH_MATCHES = 100;
 const MAX_QUERY_ROWS = 100;
 
+type JsonPrimitive = string | number | boolean | null;
+type JsonFilter = { field: string; equals: JsonPrimitive };
+type JsonLinesQuery = {
+  field?: string;
+  equals?: JsonPrimitive;
+  filters?: JsonFilter[];
+  groupBy?: string;
+  maxBy?: string;
+  sortBy?: string;
+  descending?: boolean;
+  limit?: number;
+  fields?: string[];
+};
+
 const IGNORED_ENTRIES = new Set(["node_modules", ".git"]);
 
 export type WorkspaceToolResult = {
@@ -272,14 +286,7 @@ export class ReadOnlyWorkspace {
    */
   async queryJsonLines(
     requested: string,
-    options: {
-      field?: string;
-      equals?: string | number | boolean;
-      sortBy?: string;
-      descending?: boolean;
-      limit?: number;
-      fields?: string[];
-    },
+    options: JsonLinesQuery,
   ): Promise<WorkspaceToolResult> {
     const detail = `query_json_lines ${requested}`;
     const resolved = await this.safeResolve(requested);
@@ -349,6 +356,14 @@ export class ReadOnlyWorkspace {
       };
     }
 
+    if (Boolean(options.groupBy) !== Boolean(options.maxBy)) {
+      return {
+        ok: false,
+        detail,
+        content: "Error: `groupBy` and `maxBy` must be provided together.",
+      };
+    }
+
     const valueAt = (row: Record<string, unknown>, field: string | undefined) =>
       field
         ?.split(".")
@@ -360,10 +375,34 @@ export class ReadOnlyWorkspace {
           return (value as Record<string, unknown>)[key];
         }, row);
 
-    let selected =
-      options.field && options.equals !== undefined
-        ? rows.filter((row) => valueAt(row, options.field) === options.equals)
-        : rows;
+    const filters = [
+      ...(options.field && Object.hasOwn(options, "equals")
+        ? [{ field: options.field, equals: options.equals ?? null }]
+        : []),
+      ...(options.filters ?? []),
+    ];
+    let selected = rows.filter((row) =>
+      filters.every((filter) => valueAt(row, filter.field) === filter.equals),
+    );
+
+    if (options.groupBy && options.maxBy) {
+      const groups = new Map<string, Record<string, unknown>>();
+      for (const row of selected) {
+        const key = JSON.stringify(valueAt(row, options.groupBy));
+        const current = groups.get(key);
+        const candidateValue = valueAt(row, options.maxBy);
+        const currentValue = current ? valueAt(current, options.maxBy) : undefined;
+        const isLarger =
+          !current ||
+          (typeof candidateValue === "number" &&
+            (typeof currentValue !== "number" || candidateValue > currentValue)) ||
+          (typeof candidateValue === "string" &&
+            typeof currentValue === "string" &&
+            candidateValue.localeCompare(currentValue) > 0);
+        if (isLarger) groups.set(key, row);
+      }
+      selected = [...groups.values()];
+    }
 
     if (options.sortBy) {
       selected = [...selected].sort((a, b) => {
@@ -415,11 +454,31 @@ export class ReadOnlyWorkspace {
       const equals = args.equals;
       return this.queryJsonLines(requested, {
         ...(typeof args.field === "string" ? { field: args.field } : {}),
-        ...(typeof equals === "string" ||
+        ...(Object.hasOwn(args, "equals") &&
+        (equals === null ||
+          typeof equals === "string" ||
         typeof equals === "number" ||
-        typeof equals === "boolean"
+        typeof equals === "boolean")
           ? { equals }
           : {}),
+        ...(Array.isArray(args.filters)
+          ? {
+              filters: args.filters.flatMap((filter) => {
+                if (!filter || typeof filter !== "object") return [];
+                const record = filter as Record<string, unknown>;
+                if (typeof record.field !== "string") return [];
+                const value = record.equals;
+                return value === null ||
+                  typeof value === "string" ||
+                  typeof value === "number" ||
+                  typeof value === "boolean"
+                  ? [{ field: record.field, equals: value }]
+                  : [];
+              }),
+            }
+          : {}),
+        ...(typeof args.groupBy === "string" ? { groupBy: args.groupBy } : {}),
+        ...(typeof args.maxBy === "string" ? { maxBy: args.maxBy } : {}),
         ...(typeof args.sortBy === "string" ? { sortBy: args.sortBy } : {}),
         ...(typeof args.descending === "boolean"
           ? { descending: args.descending }
@@ -518,7 +577,37 @@ export const WORKSPACE_TOOLS: ModelToolDefinition[] = [
             { type: "string" },
             { type: "number" },
             { type: "boolean" },
+            { type: "null" },
           ],
+        },
+        filters: {
+          type: "array",
+          maxItems: 10,
+          description: "Optional filters; every field/value condition must match.",
+          items: {
+            type: "object",
+            properties: {
+              field: { type: "string" },
+              equals: {
+                anyOf: [
+                  { type: "string" },
+                  { type: "number" },
+                  { type: "boolean" },
+                  { type: "null" },
+                ],
+              },
+            },
+            required: ["field", "equals"],
+            additionalProperties: false,
+          },
+        },
+        groupBy: {
+          type: "string",
+          description: "Group rows by this field. Requires maxBy.",
+        },
+        maxBy: {
+          type: "string",
+          description: "When grouping, keep the row with the largest value in this field.",
         },
         sortBy: { type: "string", description: "Optional field to sort by." },
         descending: { type: "boolean", description: "Sort largest values first." },
