@@ -312,29 +312,6 @@ export function generateEvaluationId(skillName: string): string {
   return `${slug}-${crypto.randomUUID()}`;
 }
 
-export async function countEvaluationsSince(
-  since: Date,
-  ownerId?: string,
-): Promise<number> {
-  const sql = database();
-  if (sql) {
-    await ensureDatabase();
-    const rows = ownerId
-      ? await sql`
-          SELECT COUNT(*)::int AS count FROM skillbench_evaluations
-          WHERE owner_id = ${ownerId} AND created_at >= ${since.toISOString()}
-        `
-      : await sql`
-          SELECT COUNT(*)::int AS count FROM skillbench_evaluations
-          WHERE created_at >= ${since.toISOString()}
-        `;
-    return Number((rows[0] as { count?: number } | undefined)?.count ?? 0);
-  }
-
-  const records = await listEvaluations(ownerId);
-  return records.filter((record) => new Date(record.createdAt) >= since).length;
-}
-
 export async function markEvaluationCancellationRequested(
   id: string,
   ownerId: string,

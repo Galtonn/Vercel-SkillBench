@@ -2,8 +2,6 @@ import { getBenchmark } from "./benchmarks";
 import {
   DEFAULT_RUNS_PER_CONFIG,
   getAgentOption,
-  MAX_EVALUATIONS_GLOBAL_PER_DAY,
-  MAX_EVALUATIONS_PER_SESSION_PER_DAY,
   MAX_REPOSITORY_LABEL_CHARS,
   MAX_SKILL_REFERENCE_CHARS,
 } from "./config";
@@ -26,7 +24,6 @@ import type {
   EvaluationRecord,
 } from "./types";
 import {
-  countEvaluationsSince,
   generateEvaluationId,
   loadEvaluation,
   saveEvaluation,
@@ -83,7 +80,6 @@ export async function createEvaluation(
   if (!ownerId) {
     throw new EvaluationValidationError("A valid demo session is required.");
   }
-  await assertEvaluationQuota(ownerId);
 
   const benchmark = getBenchmark(asString(payload.benchmarkId) || null);
 
@@ -177,27 +173,6 @@ export async function createEvaluation(
   return record;
 }
 
-export async function assertEvaluationQuota(ownerId: string): Promise<void> {
-  if (process.env.NODE_ENV !== "production") return;
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const [sessionCount, globalCount] = await Promise.all([
-    countEvaluationsSince(since, ownerId),
-    countEvaluationsSince(since),
-  ]);
-  if (sessionCount >= MAX_EVALUATIONS_PER_SESSION_PER_DAY) {
-    throw new ServiceError(
-      `This demo session has reached its ${MAX_EVALUATIONS_PER_SESSION_PER_DAY}-evaluation daily limit.`,
-      429,
-    );
-  }
-  if (globalCount >= MAX_EVALUATIONS_GLOBAL_PER_DAY) {
-    throw new ServiceError(
-      "The recruiter demo has reached today's shared evaluation limit. Please try again later.",
-      429,
-    );
-  }
-}
-
 export class ServiceError extends Error {
   readonly status: number;
 
@@ -239,7 +214,6 @@ export async function improveSkill(id: string, ownerId: string): Promise<Evaluat
  * revised skill, as a separate evaluation linked back to the original.
  */
 export async function createReevaluation(id: string, ownerId: string): Promise<EvaluationRecord> {
-  await assertEvaluationQuota(ownerId);
   const original = await loadEvaluation(id, ownerId);
   if (!original) throw new ServiceError(`Evaluation "${id}" was not found.`, 404);
   if (!original.improvement) {
