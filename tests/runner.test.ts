@@ -571,4 +571,51 @@ describe("executeEvaluation", () => {
     await running;
     expect(await loadEvaluation(record.id)).toBeNull();
   });
+
+  it("does not recreate a running evaluation deleted by another server process", async () => {
+    let release!: () => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const provider: ModelProvider = {
+      model: "held-model",
+      async generate() {
+        calls += 1;
+        signalStarted();
+        await held;
+        return {
+          text: "Rename to RevenueSummary.",
+          toolCalls: [],
+          inputTokens: 100,
+          outputTokens: 20,
+          latencyMs: 5,
+          model: "held-model",
+          finishReason: "stop",
+        };
+      },
+    };
+    const record = createEvaluationRecord({
+      id: "deleted-on-another-server",
+      ownerId: "test-owner",
+      skill: makeSkill(),
+      tasks: [TASKS[1], { ...TASKS[1], id: "second-task" }],
+      request: request({ selectedConfigs: ["baseline"], runsPerConfig: 1 }),
+      question: "Can a running evaluation be deleted?",
+    });
+    await saveEvaluation(record);
+
+    const running = executeEvaluation(record.id, { provider });
+    await started;
+    expect(await deleteEvaluation(record.id, "test-owner")).toBe(true);
+    release();
+    await running;
+
+    expect(await loadEvaluation(record.id)).toBeNull();
+    expect(calls).toBe(1);
+  });
 });

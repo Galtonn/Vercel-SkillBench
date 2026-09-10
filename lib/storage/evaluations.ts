@@ -63,6 +63,7 @@ async function ensureDatabase() {
           owner_id TEXT NOT NULL,
           payload JSONB NOT NULL,
           cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+          deleted BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMPTZ NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
@@ -70,6 +71,10 @@ async function ensureDatabase() {
       await sql`
         ALTER TABLE skillbench_evaluations
         ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE
+      `;
+      await sql`
+        ALTER TABLE skillbench_evaluations
+        ADD COLUMN IF NOT EXISTS deleted BOOLEAN NOT NULL DEFAULT FALSE
       `;
       await sql`
         CREATE INDEX IF NOT EXISTS skillbench_evaluations_owner_created_idx
@@ -91,6 +96,26 @@ function filePath(id: string) {
 /** Local equivalent of the database's independent cancel_requested column. */
 function cancellationFilePath(id: string) {
   return `${filePath(id)}.cancel`;
+}
+
+/** A tombstone prevents a stale local worker from recreating a deleted run. */
+function deletionFilePath(id: string) {
+  return `${filePath(id)}.deleted`;
+}
+
+async function localMarkerExists(target: string) {
+  try {
+    await readFile(/*turbopackIgnore: true*/ target, "utf8");
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 /** Ids appear in file paths, so restrict them to a safe character set. */
@@ -149,23 +174,35 @@ export async function saveEvaluation(record: EvaluationRecord): Promise<void> {
     await ensureDatabase();
     const payload = serializeEvaluation(record);
     await sql`
-      INSERT INTO skillbench_evaluations (id, owner_id, payload, created_at, updated_at)
-      VALUES (${record.id}, ${record.ownerId}, ${payload}::jsonb, ${record.createdAt}, NOW())
+      INSERT INTO skillbench_evaluations (
+        id, owner_id, payload, deleted, created_at, updated_at
+      )
+      VALUES (
+        ${record.id}, ${record.ownerId}, ${payload}::jsonb, FALSE,
+        ${record.createdAt}, NOW()
+      )
       ON CONFLICT (id) DO UPDATE SET
         owner_id = EXCLUDED.owner_id,
         payload = EXCLUDED.payload,
         updated_at = NOW()
+      WHERE skillbench_evaluations.deleted = FALSE
     `;
     return;
   }
 
   await ensureDir();
   const target = filePath(record.id);
+  const deletionMarker = deletionFilePath(record.id);
+  if (await localMarkerExists(deletionMarker)) return;
   writeCounter += 1;
   const temp = `${target}.${process.pid}.${writeCounter}.tmp`;
   try {
     await writeFile(temp, serializeEvaluation(record), "utf8");
     await rename(temp, target);
+    // Deletion may have raced the write after the first marker check.
+    if (await localMarkerExists(deletionMarker)) {
+      await rm(target, { force: true });
+    }
   } catch (error) {
     await rm(temp, { force: true }).catch(() => {});
     throw error;
@@ -183,12 +220,12 @@ export async function loadEvaluation(
     const rows = ownerId
       ? await sql`
           SELECT payload FROM skillbench_evaluations
-          WHERE id = ${id} AND owner_id = ${ownerId}
+          WHERE id = ${id} AND owner_id = ${ownerId} AND deleted = FALSE
           LIMIT 1
         `
       : await sql`
           SELECT payload FROM skillbench_evaluations
-          WHERE id = ${id}
+          WHERE id = ${id} AND deleted = FALSE
           LIMIT 1
         `;
     const payload = (rows[0] as { payload?: unknown } | undefined)?.payload;
@@ -198,6 +235,7 @@ export async function loadEvaluation(
     );
   }
 
+  if (await localMarkerExists(deletionFilePath(id))) return null;
   try {
     const raw = await readFile(/*turbopackIgnore: true*/ filePath(id), "utf8");
     const record = deserializeEvaluation(raw);
@@ -225,37 +263,29 @@ export async function deleteEvaluation(id: string, ownerId?: string): Promise<bo
     await ensureDatabase();
     const rows = ownerId
       ? await sql`
-          DELETE FROM skillbench_evaluations
-          WHERE id = ${id} AND owner_id = ${ownerId}
+          UPDATE skillbench_evaluations
+          SET deleted = TRUE, cancel_requested = TRUE, updated_at = NOW()
+          WHERE id = ${id} AND owner_id = ${ownerId} AND deleted = FALSE
           RETURNING id
         `
       : await sql`
-          DELETE FROM skillbench_evaluations
-          WHERE id = ${id}
+          UPDATE skillbench_evaluations
+          SET deleted = TRUE, cancel_requested = TRUE, updated_at = NOW()
+          WHERE id = ${id} AND deleted = FALSE
           RETURNING id
         `;
     return rows.length > 0;
   }
 
-  try {
-    if (ownerId && !(await loadEvaluation(id, ownerId))) return false;
-    await rm(/*turbopackIgnore: true*/ filePath(id));
-    await rm(/*turbopackIgnore: true*/ cancellationFilePath(id), {
-      force: true,
-    });
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
-      await rm(/*turbopackIgnore: true*/ cancellationFilePath(id), {
-        force: true,
-      });
-      return false;
-    }
-    throw error;
-  }
+  const existing = await loadEvaluation(id, ownerId);
+  if (!existing) return false;
+  const deletedAt = new Date().toISOString();
+  await writeFile(deletionFilePath(id), deletedAt, "utf8");
+  await rm(/*turbopackIgnore: true*/ filePath(id), { force: true });
+  await rm(/*turbopackIgnore: true*/ cancellationFilePath(id), {
+    force: true,
+  });
+  return true;
 }
 
 export async function listEvaluations(ownerId?: string): Promise<EvaluationRecord[]> {
@@ -265,11 +295,12 @@ export async function listEvaluations(ownerId?: string): Promise<EvaluationRecor
     const rows = ownerId
       ? await sql`
           SELECT payload FROM skillbench_evaluations
-          WHERE owner_id = ${ownerId}
+          WHERE owner_id = ${ownerId} AND deleted = FALSE
           ORDER BY created_at DESC
         `
       : await sql`
           SELECT payload FROM skillbench_evaluations
+          WHERE deleted = FALSE
           ORDER BY created_at DESC
         `;
     return rows.flatMap((row) => {
@@ -354,7 +385,7 @@ export async function markEvaluationCancellationRequested(
           TRUE
         ),
         updated_at = NOW()
-      WHERE id = ${id} AND owner_id = ${ownerId}
+      WHERE id = ${id} AND owner_id = ${ownerId} AND deleted = FALSE
       RETURNING id
     `;
     return rows.length > 0;
@@ -393,18 +424,10 @@ export async function isEvaluationCancellationRequested(
     );
   }
 
-  try {
-    await readFile(/*turbopackIgnore: true*/ cancellationFilePath(id), "utf8");
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
-      return false;
-    }
-    throw error;
-  }
+  return (
+    (await localMarkerExists(cancellationFilePath(id))) ||
+    (await localMarkerExists(deletionFilePath(id)))
+  );
 }
 
 export function evaluationsDirectory() {

@@ -168,8 +168,10 @@ describe("deleteEvaluation", () => {
   it("removes a stored evaluation", async () => {
     const record = makeRecord();
     await saveEvaluation(record);
+    const staleWorkerCopy = (await loadEvaluation(record.id))!;
 
     expect(await deleteEvaluation(record.id)).toBe(true);
+    await saveEvaluation(staleWorkerCopy);
     expect(await loadEvaluation(record.id)).toBeNull();
     expect(await listEvaluations()).toEqual([]);
   });

@@ -51,21 +51,18 @@ export async function DELETE(
     return Response.json({ error: "Evaluation not found." }, { status: 404 });
   }
 
-  if (record.status === "queued" || record.status === "running") {
-    return Response.json(
-      { error: "Cancel this evaluation before deleting it." },
-      { status: 409 },
-    );
-  }
-
+  const wasRunning = record.status === "queued" || record.status === "running";
   abandonEvaluation(id);
 
   try {
-    await deleteEvaluation(id, session.id);
+    const deleted = await deleteEvaluation(id, session.id);
+    if (!deleted) {
+      return Response.json({ error: "Evaluation not found." }, { status: 404 });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error.";
     return Response.json({ error: message }, { status: 500 });
   }
 
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, stopped: wasRunning });
 }
