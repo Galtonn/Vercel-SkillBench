@@ -294,6 +294,7 @@ export function toProgressView(
     total: record.progress.total,
     percent: record.progress.phase === "done" ? 100 : percent,
     status: toUiStatus(record),
+    cancellationRequested: Boolean(record.cancellationRequestedAt),
     error: record.error,
   };
 }

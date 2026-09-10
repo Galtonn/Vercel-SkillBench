@@ -390,25 +390,43 @@ export async function executeEvaluation(
   const record = loaded;
   const startedAtMs = Date.now();
 
+  const cancellationRequested = async () => {
+    if (cancelRequested.has(id)) return true;
+    const requested = await isEvaluationCancellationRequested(id);
+    if (requested) {
+      cancelRequested.add(id);
+      record.cancellationRequestedAt ??= new Date().toISOString();
+    }
+    return requested;
+  };
+
   const persist = async (progress: Partial<EvaluationProgress> = {}) => {
     if (abandoned.has(id)) return;
+    const stopping = await cancellationRequested();
     record.progress = {
       ...record.progress,
       ...progress,
       updatedAt: new Date().toISOString(),
     };
+    if (
+      stopping &&
+      (record.status === "queued" || record.status === "running")
+    ) {
+      record.progress.label = "Cancelling evaluation";
+      record.progress.detail = "Waiting for in-flight model calls to finish";
+    } else if (stopping && record.status === "completed") {
+      // Close the small race where cancellation arrives after the last explicit
+      // check but before the final completed record is persisted.
+      record.status = "cancelled";
+      record.progress.phase = "error";
+      record.progress.label = "Evaluation cancelled";
+      record.progress.detail = "Partial results were saved";
+    }
     if (abandoned.has(id)) return;
     await saveEvaluation(record);
     if (abandoned.has(id)) {
       await deleteEvaluation(id).catch(() => {});
     }
-  };
-
-  const cancellationRequested = async () => {
-    if (cancelRequested.has(id)) return true;
-    const requested = await isEvaluationCancellationRequested(id);
-    if (requested) cancelRequested.add(id);
-    return requested;
   };
 
   const setPhase = async (
@@ -417,6 +435,17 @@ export async function executeEvaluation(
     detail: string,
   ) => {
     await persist({ phase, label, detail });
+  };
+
+  const finishCancellation = async () => {
+    record.status = "cancelled";
+    record.completedAt = new Date().toISOString();
+    record.metrics = computeMetrics({
+      runs: record.runs,
+      selectedConfigs: record.request.selectedConfigs,
+      wallClockMs: Date.now() - startedAtMs,
+    });
+    await setPhase("error", "Evaluation cancelled", "Partial results were saved");
   };
 
   try {
@@ -496,14 +525,7 @@ export async function executeEvaluation(
     }
 
     if (await cancellationRequested()) {
-      record.status = "cancelled";
-      record.completedAt = new Date().toISOString();
-      record.metrics = computeMetrics({
-        runs: record.runs,
-        selectedConfigs: record.request.selectedConfigs,
-        wallClockMs: Date.now() - startedAtMs,
-      });
-      await setPhase("error", "Evaluation cancelled", "Partial results were saved");
+      await finishCancellation();
       return;
     }
 
@@ -543,6 +565,11 @@ export async function executeEvaluation(
     });
     record.findings = analysis.findings;
     record.findingsError = analysis.error;
+
+    if (await cancellationRequested()) {
+      await finishCancellation();
+      return;
+    }
 
     await setPhase("saving", "Saving evaluation", "Persisting results");
 

@@ -88,6 +88,11 @@ function filePath(id: string) {
   return path.join(dataDir(), `${sanitizeId(id)}.json`);
 }
 
+/** Local equivalent of the database's independent cancel_requested column. */
+function cancellationFilePath(id: string) {
+  return `${filePath(id)}.cancel`;
+}
+
 /** Ids appear in file paths, so restrict them to a safe character set. */
 export function sanitizeId(id: string) {
   const cleaned = id.replace(/[^a-zA-Z0-9._-]/g, "");
@@ -235,12 +240,18 @@ export async function deleteEvaluation(id: string, ownerId?: string): Promise<bo
   try {
     if (ownerId && !(await loadEvaluation(id, ownerId))) return false;
     await rm(/*turbopackIgnore: true*/ filePath(id));
+    await rm(/*turbopackIgnore: true*/ cancellationFilePath(id), {
+      force: true,
+    });
     return true;
   } catch (error) {
     if (
       error instanceof Error &&
       (error as NodeJS.ErrnoException).code === "ENOENT"
     ) {
+      await rm(/*turbopackIgnore: true*/ cancellationFilePath(id), {
+        force: true,
+      });
       return false;
     }
     throw error;
@@ -317,12 +328,32 @@ export async function markEvaluationCancellationRequested(
   ownerId: string,
 ): Promise<boolean> {
   sanitizeId(id);
+  const requestedAt = new Date().toISOString();
+  const label = "Cancelling evaluation";
+  const detail = "Waiting for in-flight model calls to finish";
   const sql = database();
   if (sql) {
     await ensureDatabase();
     const rows = await sql`
       UPDATE skillbench_evaluations
-      SET cancel_requested = TRUE, updated_at = NOW()
+      SET
+        cancel_requested = TRUE,
+        payload = jsonb_set(
+          jsonb_set(
+            payload,
+            '{cancellationRequestedAt}',
+            to_jsonb(${requestedAt}::text),
+            TRUE
+          ),
+          '{progress}',
+          COALESCE(payload->'progress', '{}'::jsonb) || jsonb_build_object(
+            'label', ${label},
+            'detail', ${detail},
+            'updatedAt', ${requestedAt}
+          ),
+          TRUE
+        ),
+        updated_at = NOW()
       WHERE id = ${id} AND owner_id = ${ownerId}
       RETURNING id
     `;
@@ -331,7 +362,16 @@ export async function markEvaluationCancellationRequested(
 
   const record = await loadEvaluation(id, ownerId);
   if (!record) return false;
-  record.cancellationRequestedAt = new Date().toISOString();
+  record.cancellationRequestedAt = requestedAt;
+  record.progress = {
+    ...record.progress,
+    label,
+    detail,
+    updatedAt: requestedAt,
+  };
+  // Keep the signal separate from the frequently rewritten evaluation JSON so
+  // a worker in another process cannot erase it with a stale progress save.
+  await writeFile(cancellationFilePath(id), requestedAt, "utf8");
   await saveEvaluation(record);
   return true;
 }
@@ -353,7 +393,18 @@ export async function isEvaluationCancellationRequested(
     );
   }
 
-  return Boolean((await loadEvaluation(id))?.cancellationRequestedAt);
+  try {
+    await readFile(/*turbopackIgnore: true*/ cancellationFilePath(id), "utf8");
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export function evaluationsDirectory() {

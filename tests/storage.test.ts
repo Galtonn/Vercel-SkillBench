@@ -10,8 +10,10 @@ import {
   deserializeEvaluation,
   evaluationsDirectory,
   generateEvaluationId,
+  isEvaluationCancellationRequested,
   listEvaluations,
   loadEvaluation,
+  markEvaluationCancellationRequested,
   sanitizeId,
   saveEvaluation,
   serializeEvaluation,
@@ -91,6 +93,42 @@ describe("sanitizeId", () => {
 
   it("refuses to load or save under a rejected id", async () => {
     await expect(loadEvaluation("../escape")).rejects.toThrow(/Invalid evaluation id/);
+  });
+});
+
+describe("cancellation persistence", () => {
+  it("stores the signal independently and exposes immediate progress feedback", async () => {
+    const record = makeRecord({
+      id: "cancel-me",
+      ownerId: "owner-1",
+      status: "running",
+    });
+    await saveEvaluation(record);
+
+    expect(
+      await markEvaluationCancellationRequested(record.id, "owner-1"),
+    ).toBe(true);
+    expect(await isEvaluationCancellationRequested(record.id)).toBe(true);
+
+    const updated = (await loadEvaluation(record.id, "owner-1"))!;
+    expect(updated.cancellationRequestedAt).toBeTruthy();
+    expect(updated.progress.label).toBe("Cancelling evaluation");
+    expect(updated.progress.detail).toMatch(/in-flight model calls/);
+  });
+
+  it("does not lose cancellation when a stale worker saves its record", async () => {
+    const record = makeRecord({
+      id: "stale-cancel",
+      ownerId: "owner-1",
+      status: "running",
+    });
+    await saveEvaluation(record);
+    const staleWorkerCopy = (await loadEvaluation(record.id))!;
+
+    await markEvaluationCancellationRequested(record.id, "owner-1");
+    await saveEvaluation(staleWorkerCopy);
+
+    expect(await isEvaluationCancellationRequested(record.id)).toBe(true);
   });
 });
 

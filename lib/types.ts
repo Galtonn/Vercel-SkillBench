@@ -153,6 +153,7 @@ export type EvaluationProgressView = {
   total: number;
   percent: number;
   status: EvalStatus;
+  cancellationRequested: boolean;
   error: string | null;
 };
 

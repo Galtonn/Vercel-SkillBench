@@ -27,9 +27,14 @@ export function RunningEvaluation({
     initialProgress,
   );
   const [cancelling, setCancelling] = useState(false);
+  const [requestedLocally, setRequestedLocally] = useState(
+    initialProgress.cancellationRequested,
+  );
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   const current = progress ?? initialProgress;
+  const cancellationRequested =
+    requestedLocally || current.cancellationRequested;
 
   useEffect(() => {
     if (finished) router.refresh();
@@ -47,6 +52,8 @@ export function RunningEvaluation({
           error?: string;
         };
         setCancelError(body.error ?? "Could not cancel this evaluation.");
+      } else {
+        setRequestedLocally(true);
       }
     } catch (error) {
       setCancelError(
@@ -84,8 +91,9 @@ export function RunningEvaluation({
         </div>
 
         <p className="mt-8 text-sm text-muted-foreground">
-          Each run is a real model call. Results appear on this page as soon as
-          scoring and aggregation finish.
+          {cancellationRequested
+            ? "Cancellation requested. Model calls already in progress may finish before the evaluation stops."
+            : "Each run is a real model call. Results appear on this page as soon as scoring and aggregation finish."}
         </p>
 
         {streamError ? (
@@ -112,10 +120,16 @@ export function RunningEvaluation({
             variant="ghost"
             size="sm"
             onClick={cancel}
-            disabled={cancelling || current.status !== "running"}
+            disabled={
+              cancelling || cancellationRequested || current.status !== "running"
+            }
             type="button"
           >
-            {cancelling ? "Cancelling…" : "Cancel evaluation"}
+            {cancelling
+              ? "Requesting cancellation…"
+              : cancellationRequested
+                ? "Cancellation requested"
+                : "Cancel evaluation"}
           </Button>
         </div>
       </div>

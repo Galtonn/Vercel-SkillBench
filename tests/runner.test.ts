@@ -22,6 +22,7 @@ import type { EvalTask, EvaluationRequest } from "@/lib/eval/types";
 import {
   deleteEvaluation,
   loadEvaluation,
+  markEvaluationCancellationRequested,
   saveEvaluation,
 } from "@/lib/storage/evaluations";
 
@@ -458,6 +459,63 @@ describe("executeEvaluation", () => {
 
   it("throws for an evaluation id that was never stored", async () => {
     await expect(executeEvaluation("missing-id")).rejects.toThrow(/not found/);
+  });
+
+  it("honors a cancellation requested by a separate server process", async () => {
+    let release!: () => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const provider: ModelProvider = {
+      model: "held-model",
+      async generate() {
+        calls += 1;
+        signalStarted();
+        await held;
+        return {
+          text: "Rename to RevenueSummary.",
+          toolCalls: [],
+          inputTokens: 100,
+          outputTokens: 20,
+          latencyMs: 5,
+          model: "held-model",
+          finishReason: "stop",
+        };
+      },
+    };
+
+    const secondTask: EvalTask = {
+      ...TASKS[1],
+      id: "rename-component-again",
+      name: "Rename another component",
+    };
+    const record = createEvaluationRecord({
+      id: "externally-cancelled-eval",
+      ownerId: "test-owner",
+      skill: makeSkill(),
+      tasks: [TASKS[1], secondTask],
+      request: request({ selectedConfigs: ["baseline"], runsPerConfig: 1 }),
+      question: "Can this run be cancelled?",
+    });
+    await saveEvaluation(record);
+
+    const running = executeEvaluation(record.id, { provider });
+    await started;
+    expect(
+      await markEvaluationCancellationRequested(record.id, "test-owner"),
+    ).toBe(true);
+    release();
+    await running;
+
+    const cancelled = (await loadEvaluation(record.id))!;
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.runs).toHaveLength(1);
+    expect(calls).toBe(1);
   });
 
   it("does not recreate a deleted evaluation after it is abandoned", async () => {
